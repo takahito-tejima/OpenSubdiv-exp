@@ -67,6 +67,7 @@ static const char *shaderSource =
 #include <sstream>
 
 #include "mesh.h"
+#include "hdisp.h"
 
 // ---------------------------------------------------------------------------
 
@@ -160,12 +161,14 @@ EffectDrawRegistry::_CreateDrawSourceConfig(DescType const & desc)
 {
     Effect effect = desc.second;
 
+    SetPtexEnabled(true);
+
     SourceConfigType * sconfig =
         BaseRegistry::_CreateDrawSourceConfig(desc.first);
 
     assert(sconfig);
 
-    const char *glslVersion = "#version 400\n";
+    const char *glslVersion = "#version 410\n";
     if (desc.first.GetType() == OpenSubdiv::FarPatchTables::QUADS or
         desc.first.GetType() == OpenSubdiv::FarPatchTables::TRIANGLES) {
         sconfig->vertexShader.source = shaderSource;
@@ -411,6 +414,12 @@ drawPatches(OpenSubdiv::OsdDrawContext::PatchArrayVector const &patches,
 
         GLuint program = bindProgram(GetEffect(), patch);
 
+        int sampler = 7;
+        GLint texData = glGetUniformLocation(program, "textureImage_Data");
+        GLint texPacking = glGetUniformLocation(program, "textureImage_Packing");
+        sampler = g_mesh->GetHDisplacement()->BindTexture(
+            program, texData, texPacking, sampler);
+
         GLuint uniformColor =
           glGetUniformLocation(program, "diffuseColor");
         glProgramUniform4f(program, uniformColor, color[0], color[1], color[2], 1);
@@ -435,6 +444,7 @@ drawPatches(OpenSubdiv::OsdDrawContext::PatchArrayVector const &patches,
     }
     return numDrawCalls;
 }
+
 static void
 display() {
 

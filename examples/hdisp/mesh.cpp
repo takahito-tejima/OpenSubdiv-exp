@@ -1,10 +1,12 @@
 #include <climits>
 #include <cfloat>
-#include "mesh.h"
 #include <far/mesh.h>
 #include <far/meshFactory.h>
+#include <osd/vertex.h>
 #include <osd/cpuComputeController.h>
 #include <common/shape_utils.h>
+#include "mesh.h"
+#include "hdisp.h"
 
 typedef OpenSubdiv::HbrMesh<OpenSubdiv::OsdVertex>     OsdHbrMesh;
 typedef OpenSubdiv::HbrVertex<OpenSubdiv::OsdVertex>   OsdHbrVertex;
@@ -12,8 +14,14 @@ typedef OpenSubdiv::HbrFace<OpenSubdiv::OsdVertex>     OsdHbrFace;
 typedef OpenSubdiv::HbrHalfedge<OpenSubdiv::OsdVertex> OsdHbrHalfedge;
 
 Mesh::Mesh(const std::string &shape) :
-    _vertexBuffer(NULL), _computeContext(NULL), _drawContext(NULL), _shape(shape)
+    _vertexBuffer(NULL), _computeContext(NULL), _drawContext(NULL),
+    _shape(shape), _hdisp(NULL)
 {
+    OsdHbrMesh * hmesh = simpleHbr<OpenSubdiv::OsdVertex>(
+        _shape.c_str(), kCatmark, _orgPositions);
+
+    // allocate ptex
+    _hdisp = new HDisplacement(hmesh);
 }
 
 Mesh::~Mesh()
@@ -21,6 +29,7 @@ Mesh::~Mesh()
     delete _vertexBuffer;
     delete _computeContext;
     delete _drawContext;
+    delete _hdisp;
 }
 
 void
@@ -32,8 +41,10 @@ Mesh::SetRefineLevel(int level)
     delete _computeContext;
     delete _drawContext;
 
-    OsdHbrMesh * hmesh = simpleHbr<OsdVertex>(
-        _shape.c_str(), kCatmark, _orgPositions);
+    // create again for adaptive refinement.
+    std::vector<float> tmp;
+    OsdHbrMesh * hmesh = simpleHbr<OsdVertex>(_shape.c_str(), kCatmark, tmp);
+
     // centering rest position
     float min[3] = { FLT_MAX,  FLT_MAX,  FLT_MAX};
     float max[3] = {-FLT_MAX, -FLT_MAX, -FLT_MAX};

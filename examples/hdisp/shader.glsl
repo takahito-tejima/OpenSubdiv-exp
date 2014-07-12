@@ -22,35 +22,6 @@
 //   language governing permissions and limitations under the Apache License.
 //
 #line 24
-#if defined(VARYING_COLOR) || defined(FACEVARYING_COLOR)
-#undef OSD_USER_VARYING_DECLARE
-#define OSD_USER_VARYING_DECLARE \
-    vec3 color;
-
-#undef OSD_USER_VARYING_ATTRIBUTE_DECLARE
-#define OSD_USER_VARYING_ATTRIBUTE_DECLARE \
-    layout(location = 1) in vec3 color;
-
-#undef OSD_USER_VARYING_PER_VERTEX
-#define OSD_USER_VARYING_PER_VERTEX() \
-    outpt.color = color
-
-#undef OSD_USER_VARYING_PER_CONTROL_POINT
-#define OSD_USER_VARYING_PER_CONTROL_POINT(ID_OUT, ID_IN) \
-    outpt[ID_OUT].color = inpt[ID_IN].color
-
-#undef OSD_USER_VARYING_PER_EVAL_POINT
-#define OSD_USER_VARYING_PER_EVAL_POINT(UV, a, b, c, d) \
-    outpt.color = \
-        mix(mix(inpt[a].color, inpt[b].color, UV.x), \
-            mix(inpt[c].color, inpt[d].color, UV.x), UV.y)
-#else
-#define OSD_USER_VARYING_DECLARE
-#define OSD_USER_VARYING_ATTRIBUTE_DECLARE
-#define OSD_USER_VARYING_PER_VERTEX()
-#define OSD_USER_VARYING_PER_CONTROL_POINT(ID_OUT, ID_IN)
-#define OSD_USER_VARYING_PER_EVAL_POINT(UV, a, b, c, d)
-#endif
 
 //--------------------------------------------------------------
 // Uniforms / Uniform Blocks
@@ -119,17 +90,14 @@ int OsdBaseVertex()
 #ifdef VERTEX_SHADER
 
 layout (location=0) in vec4 position;
-OSD_USER_VARYING_ATTRIBUTE_DECLARE
 
 out block {
     OutputVertex v;
-    OSD_USER_VARYING_DECLARE
 } outpt;
 
 void main()
 {
     outpt.v.position = ModelViewMatrix * position;
-    OSD_USER_VARYING_PER_VERTEX();
 }
 
 #endif
@@ -159,13 +127,11 @@ void main()
 layout(triangle_strip, max_vertices = EDGE_VERTS) out;
 in block {
     OutputVertex v;
-    OSD_USER_VARYING_DECLARE
 } inpt[EDGE_VERTS];
 
 out block {
     OutputVertex v;
     noperspective out vec4 edgeDistance;
-    OSD_USER_VARYING_DECLARE
 } outpt;
 
 void emit(int index, vec3 normal)
@@ -176,10 +142,7 @@ void emit(int index, vec3 normal)
 #else
     outpt.v.normal = normal;
 #endif
-
-#ifdef VARYING_COLOR
-    outpt.color = inpt[index].color;
-#endif
+    outpt.v.patchCoord = inpt[index].v.patchCoord;
 
     gl_Position = ProjectionMatrix * inpt[index].v.position;
     EmitVertex();
@@ -288,7 +251,6 @@ void main()
 in block {
     OutputVertex v;
     noperspective in vec4 edgeDistance;
-    OSD_USER_VARYING_DECLARE
 } inpt;
 
 out vec4 outColor;
@@ -308,6 +270,9 @@ layout(std140) uniform Lighting {
 
 uniform vec4 diffuseColor = vec4(1);
 uniform vec4 ambientColor = vec4(1);
+
+uniform sampler2DArray textureImage_Data;
+uniform isamplerBuffer textureImage_Packing;
 
 vec4
 lighting(vec4 diffuse, vec3 Peye, vec3 Neye)
@@ -367,11 +332,11 @@ main()
 {
     vec3 N = (gl_FrontFacing ? inpt.v.normal : -inpt.v.normal);
 
-#if defined(VARYING_COLOR)
-    vec4 color = vec4(inpt.color, 1);
-#else
-    vec4 color = diffuseColor;
-#endif
+    //vec4 color = diffuseColor;
+    vec4 color = PtexLookupNearest(inpt.v.patchCoord,
+                                   textureImage_Data,
+                                   textureImage_Packing);
+
 
     vec4 Cf = lighting(color, inpt.v.position.xyz, N);
 

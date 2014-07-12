@@ -6,6 +6,8 @@
 #include <osd/cpuGLVertexBuffer.h>
 #include <osd/glDrawContext.h>
 
+class HDisplacement;
+
 class Mesh {
 public:
     Mesh(const std::string &shape);
@@ -20,6 +22,10 @@ public:
 
     void UpdateGeom();
 
+    HDisplacement *GetHDisplacement() const {
+        return _hdisp;
+    }
+
 private:
     OpenSubdiv::OsdCpuGLVertexBuffer *_vertexBuffer;
     OpenSubdiv::OsdCpuComputeContext *_computeContext;
@@ -29,6 +35,8 @@ private:
 
     std::vector<float> _orgPositions;
     std::vector<float> _positions;
+
+    HDisplacement *_hdisp;
 };
 
 #endif // MESH_H
