@@ -46,23 +46,15 @@
     #include <GL/glfw.h>
 #endif
 
-#include <far/mesh.h>
-#include <far/meshFactory.h>
-
 #include <osd/error.h>
 #include <osd/vertex.h>
 #include <osd/glDrawContext.h>
 #include <osd/glDrawRegistry.h>
 #include <osd/glMesh.h>
 
-#include <osd/cpuGLVertexBuffer.h>
-#include <osd/cpuComputeContext.h>
-#include <osd/cpuComputeController.h>
 
-#include <common/shape_utils.h>
 #include <shapes/catmark_cube.h>
 
-#include "../common/stopwatch.h"
 #include "../common/simple_math.h"
 #include "../common/gl_hud.h"
 
@@ -70,31 +62,23 @@ static const char *shaderSource =
 #include "shader.gen.h"
 ;
 
-#include <cfloat>
 #include <vector>
 #include <fstream>
 #include <sstream>
 
-typedef OpenSubdiv::HbrMesh<OpenSubdiv::OsdVertex>     OsdHbrMesh;
-typedef OpenSubdiv::HbrVertex<OpenSubdiv::OsdVertex>   OsdHbrVertex;
-typedef OpenSubdiv::HbrFace<OpenSubdiv::OsdVertex>     OsdHbrFace;
-typedef OpenSubdiv::HbrHalfedge<OpenSubdiv::OsdVertex> OsdHbrHalfedge;
+#include "mesh.h"
 
 // ---------------------------------------------------------------------------
 
 enum DisplayStyle { kWire = 0,
                     kShaded,
-                    kWireShaded,
-                    kVarying,
-                    kVaryingInterleaved };
+                    kWireShaded };
 
 enum HudCheckBox { kHUD_CB_FREEZE };
 
 // GUI variables
 int   g_displayStyle = kShaded,
-      g_adaptive = 0,
       g_mbutton[3] = {0, 0, 0},
-      g_freeze = 0,
       g_running = 1;
 
 float g_rotate[2] = {0, 0},
@@ -111,23 +95,12 @@ int   g_width = 1024,
 
 GLhud g_hud;
 
-// performance
-float g_cpuTime = 0;
-float g_gpuTime = 0;
-Stopwatch g_fpsTimer;
-
 // geometry
-std::vector<float> g_orgPositions,
-                   g_positions;
-
-#include <osd/glMesh.h>
-OpenSubdiv::OsdGLMeshInterface *g_mesh;
+Mesh *g_mesh = NULL;
 
 int g_level = 2;
 int g_tessLevel = 1;
 int g_tessLevelMin = 1;
-int g_numInstances = 25;
-int g_frame = 0;
 
 GLuint g_transformUB = 0,
        g_transformBinding = 0,
@@ -144,113 +117,6 @@ struct Transform {
 
 GLuint g_queries[2] = {0, 0};
 GLuint g_vao = 0;
-
-static void
-checkGLErrors(std::string const & where = "")
-{
-    GLuint err;
-    while ((err = glGetError()) != GL_NO_ERROR) {
-        std::cerr << "GL error: "
-                  << (where.empty() ? "" : where + " ")
-                  << err << "\n";
-    }
-}
-
-//------------------------------------------------------------------------------
-struct SimpleShape {
-    std::string  name;
-    Scheme       scheme;
-    std::string  data;
-
-    SimpleShape() { }
-    SimpleShape( std::string const & idata, char const * iname, Scheme ischeme )
-        : name(iname), scheme(ischeme), data(idata) { }
-};
-
-//------------------------------------------------------------------------------
-static void
-updateGeom() {
-
-    int nverts = (int)g_orgPositions.size() / 3;
-
-    std::vector<float> vertex(3 * nverts);
-    for (int i = 0; i < g_numInstances; ++i) {
-        float *d = &vertex[0];
-        const float *p = &g_orgPositions[0];
-
-        for (int j = 0; j < nverts; ++j) {
-            *d++ = p[0];
-            *d++ = p[1];
-            *d++ = p[2];
-            p += 3;
-        }
-        g_mesh->UpdateVertexBuffer(&vertex[0], 0, nverts);
-    }
-}
-
-static void
-refine() {
-
-    Stopwatch s;
-    s.Start();
-
-    g_mesh->Refine();
-
-    s.Stop();
-    g_cpuTime = float(s.GetElapsed() * 1000.0f);
-    s.Start();
-
-    s.Stop();
-    g_gpuTime = float(s.GetElapsed() * 1000.0f);
-
-
-    s.Stop();
-}
-
-//------------------------------------------------------------------------------
-static void
-createOsdMesh(const std::string &shape, int level, Scheme scheme=kCatmark) {
-
-    checkGLErrors("create osd enter");
-    // generate Hbr representation from "obj" description
-    OsdHbrMesh * hmesh = simpleHbr<OpenSubdiv::OsdVertex>(shape.c_str(), scheme,
-                                                          g_orgPositions);
-
-    // create farmesh
-    delete g_mesh;
-    g_mesh = NULL;
-
-    OpenSubdiv::OsdMeshBitset bits;
-    bits.set(OpenSubdiv::MeshAdaptive, true);
-    static OpenSubdiv::OsdCpuComputeController controller;
-    g_mesh = new OpenSubdiv::OsdMesh<OpenSubdiv::OsdCpuGLVertexBuffer,
-        OpenSubdiv::OsdCpuComputeController,
-        OpenSubdiv::OsdGLDrawContext>(
-            &controller,
-            hmesh,
-            3, 0, level, bits);
-
-    // Hbr mesh can be deleted
-    delete hmesh;
-
-    // centering rest position
-    float min[3] = { FLT_MAX,  FLT_MAX,  FLT_MAX};
-    float max[3] = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
-    float center[3];
-    for (size_t i=0; i < g_orgPositions.size()/3; ++i) {
-        for (int j=0; j<3; ++j) {
-            float v = g_orgPositions[i*3+j];
-            min[j] = std::min(min[j], v);
-            max[j] = std::max(max[j], v);
-        }
-    }
-    for (int j=0; j<3; ++j) center[j] = (min[j] + max[j]) * 0.5f;
-    for (size_t i=0; i < g_orgPositions.size()/3; ++i) {
-        g_orgPositions[i*3+0] -= center[0];
-        g_orgPositions[i*3+1] -= center[1];
-        g_orgPositions[i*3+2] -= center[2];
-    }
-}
 
 //------------------------------------------------------------------------------
 static void
@@ -299,12 +165,7 @@ EffectDrawRegistry::_CreateDrawSourceConfig(DescType const & desc)
 
     assert(sconfig);
 
-#if defined(GL_ARB_tessellation_shader) || defined(GL_VERSION_4_0)
     const char *glslVersion = "#version 400\n";
-#else
-    const char *glslVersion = "#version 330\n";
-#endif
-
     if (desc.first.GetType() == OpenSubdiv::FarPatchTables::QUADS or
         desc.first.GetType() == OpenSubdiv::FarPatchTables::TRIANGLES) {
         sconfig->vertexShader.source = shaderSource;
@@ -353,14 +214,6 @@ EffectDrawRegistry::_CreateDrawSourceConfig(DescType const & desc)
     case kShaded:
         sconfig->commonShader.AddDefine("GEOMETRY_OUT_FILL");
         break;
-    case kVarying:
-        sconfig->commonShader.AddDefine("VARYING_COLOR");
-        sconfig->commonShader.AddDefine("GEOMETRY_OUT_FILL");
-        break;
-    case kVaryingInterleaved:
-        sconfig->commonShader.AddDefine("VARYING_COLOR");
-        sconfig->commonShader.AddDefine("GEOMETRY_OUT_FILL");
-        break;
     }
 
     return sconfig;
@@ -393,24 +246,6 @@ EffectDrawRegistry::_CreateDrawConfig(
         glUniformBlockBinding(config->program, uboIndex, g_lightingBinding);
 
     GLint loc;
-#if not defined(GL_ARB_separate_shader_objects) || defined(GL_VERSION_4_1)
-    glUseProgram(config->program);
-    if ((loc = glGetUniformLocation(config->program, "OsdVertexBuffer")) != -1) {
-        glUniform1i(loc, 0); // GL_TEXTURE0
-    }
-    if ((loc = glGetUniformLocation(config->program, "OsdValenceBuffer")) != -1) {
-        glUniform1i(loc, 1); // GL_TEXTURE1
-    }
-    if ((loc = glGetUniformLocation(config->program, "OsdQuadOffsetBuffer")) != -1) {
-        glUniform1i(loc, 2); // GL_TEXTURE2
-    }
-    if ((loc = glGetUniformLocation(config->program, "OsdPatchParamBuffer")) != -1) {
-        glUniform1i(loc, 3); // GL_TEXTURE3
-    }
-    if ((loc = glGetUniformLocation(config->program, "OsdFVarDataBuffer")) != -1) {
-        glUniform1i(loc, 4); // GL_TEXTURE4
-    }
-#else
     if ((loc = glGetUniformLocation(config->program, "OsdVertexBuffer")) != -1) {
         glProgramUniform1i(config->program, loc, 0); // GL_TEXTURE0
     }
@@ -426,7 +261,6 @@ EffectDrawRegistry::_CreateDrawConfig(
     if ((loc = glGetUniformLocation(config->program, "OsdFVarDataBuffer")) != -1) {
         glProgramUniform1i(config->program, loc, 4); // GL_TEXTURE4
     }
-#endif
 
     return config;
 }
@@ -552,7 +386,6 @@ bindProgram(Effect effect, OpenSubdiv::OsdDrawContext::PatchArray const & patch)
 //------------------------------------------------------------------------------
 static int
 drawPatches(OpenSubdiv::OsdDrawContext::PatchArrayVector const &patches,
-            int instanceIndex,
             GLfloat const *color)
 {
     int numDrawCalls = 0;
@@ -572,20 +405,14 @@ drawPatches(OpenSubdiv::OsdDrawContext::PatchArrayVector const &patches,
             primType = GL_TRIANGLES;
             break;
         default:
-#if defined(GL_ARB_tessellation_shader) || defined(GL_VERSION_4_0)
             primType = GL_PATCHES;
             glPatchParameteri(GL_PATCH_VERTICES, desc.GetNumControlVertices());
-#else
-            primType = GL_POINTS;
-#endif
         }
 
-#if defined(GL_ARB_tessellation_shader) || defined(GL_VERSION_4_0)
         GLuint program = bindProgram(GetEffect(), patch);
 
         GLuint uniformColor =
           glGetUniformLocation(program, "diffuseColor");
-
         glProgramUniform4f(program, uniformColor, color[0], color[1], color[2], 1);
 
         GLuint uniformGregoryQuadOffsetBase =
@@ -597,35 +424,19 @@ drawPatches(OpenSubdiv::OsdDrawContext::PatchArrayVector const &patches,
                            patch.GetQuadOffsetIndex());
         glProgramUniform1i(program, uniformPrimitiveIdBase,
                            patch.GetPatchIndex());
-#else
-        GLuint program = bindProgram(GetEffect(), patch);
-        GLint uniformPrimitiveIdBase =
-          glGetUniformLocation(program, "PrimitiveIdBase");
-        if (uniformPrimitiveIdBase != -1)
-            glUniform1i(uniformPrimitiveIdBase, patch.GetPatchIndex());
-#endif
 
         GLvoid *indices = (void *)(patch.GetVertIndex() * sizeof(unsigned int));
 
-        int baseVertex = g_mesh->GetNumVertices() * instanceIndex;
-
-        glProgramUniform1i(program, glGetUniformLocation(program, "BaseVertex"),
-                           baseVertex);
-
-        glDrawElementsBaseVertex(primType,
-                                 patch.GetNumIndices(),
-                                 GL_UNSIGNED_INT,
-                                 indices,
-                                 baseVertex);
+        glDrawElements(primType,
+                       patch.GetNumIndices(),
+                       GL_UNSIGNED_INT,
+                       indices);
         ++numDrawCalls;
     }
     return numDrawCalls;
 }
 static void
 display() {
-
-    Stopwatch s;
-    s.Start();
 
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -664,67 +475,40 @@ display() {
     int numDrawCalls = 0;
     // primitive counting
     glBeginQuery(GL_PRIMITIVES_GENERATED, g_queries[0]);
-#if defined(GL_VERSION_3_3)
     glBeginQuery(GL_TIME_ELAPSED, g_queries[1]);
-#endif
 
     // draw instances with same topology
-    for (int i = 0; i < g_numInstances; ++i) {
-        GLfloat color[3] = {i/(float)g_numInstances, 0.5, 0.5};
-        numDrawCalls += drawPatches(patches, i, color);
-    }
+    GLfloat color[3] = {1.0, 1.0, 0.5};
+    numDrawCalls += drawPatches(patches, color);
 
     glEndQuery(GL_PRIMITIVES_GENERATED);
-#if defined(GL_VERSION_3_3)
     glEndQuery(GL_TIME_ELAPSED);
-#endif
 
     glBindVertexArray(0);
 
     glUseProgram(0);
 
-    s.Stop();
-    float drawCpuTime = float(s.GetElapsed() * 1000.0f);
-
     GLuint numPrimsGenerated = 0;
     GLuint timeElapsed = 0;
     glGetQueryObjectuiv(g_queries[0], GL_QUERY_RESULT, &numPrimsGenerated);
-#if defined(GL_VERSION_3_3)
     glGetQueryObjectuiv(g_queries[1], GL_QUERY_RESULT, &timeElapsed);
-#endif
-    float drawGpuTime = timeElapsed / 1000.0f / 1000.0f;
 
     if (g_hud.IsVisible()) {
-        g_fpsTimer.Stop();
-        double fps = 1.0/g_fpsTimer.GetElapsed();
-        g_fpsTimer.Start();
-
         g_hud.DrawString(10, -180, "Tess level  : %d", g_tessLevel);
         g_hud.DrawString(10, -160, "Primitives  : %d", numPrimsGenerated);
         g_hud.DrawString(10, -140, "Draw calls  : %d", numDrawCalls);
-        g_hud.DrawString(10, -100, "GPU Compute : %.3f ms", g_gpuTime);
-        g_hud.DrawString(10, -80,  "CPU Compute : %.3f ms", g_cpuTime);
-        g_hud.DrawString(10, -60,  "GPU Draw    : %.3f ms", drawGpuTime);
-        g_hud.DrawString(10, -40,  "CPU Draw    : %.3f ms", drawCpuTime);
-        g_hud.DrawString(10, -20,  "FPS         : %3.1f", fps);
 
         g_hud.Flush();
     }
 
     glFinish();
-
-    //checkGLErrors("display leave");
 }
 
 //------------------------------------------------------------------------------
 static void
-#if GLFW_VERSION_MAJOR>=3
-motion(GLFWwindow *, double dx, double dy) {
+motion(GLFWwindow *, double dx, double dy)
+{
     int x=(int)dx, y=(int)dy;
-#else
-motion(int x, int y) {
-#endif
-
     if (g_mbutton[0] && !g_mbutton[1] && !g_mbutton[2]) {
         // orbit
         g_rotate[0] += x - g_prev_x;
@@ -746,12 +530,8 @@ motion(int x, int y) {
 
 //------------------------------------------------------------------------------
 static void
-#if GLFW_VERSION_MAJOR>=3
-mouse(GLFWwindow *, int button, int state, int /* mods */) {
-#else
-mouse(int button, int state) {
-#endif
-
+mouse(GLFWwindow *, int button, int state, int /* mods */)
+{
     if (button == 0 && state == GLFW_PRESS && g_hud.MouseClick(g_prev_x, g_prev_y))
         return;
 
@@ -762,8 +542,8 @@ mouse(int button, int state) {
 
 //------------------------------------------------------------------------------
 static void
-uninitGL() {
-
+uninitGL()
+{
     glDeleteQueries(2, g_queries);
     glDeleteVertexArrays(1, &g_vao);
 
@@ -773,62 +553,48 @@ uninitGL() {
 
 //------------------------------------------------------------------------------
 static void
-#if GLFW_VERSION_MAJOR>=3
-reshape(GLFWwindow *, int width, int height) {
-#else
-reshape(int width, int height) {
-#endif
-
+reshape(GLFWwindow *, int width, int height)
+{
     g_width = width;
     g_height = height;
 
     int windowWidth = g_width, windowHeight = g_height;
-#if GLFW_VERSION_MAJOR>=3
     // window size might not match framebuffer size on a high DPI display
     glfwGetWindowSize(g_window, &windowWidth, &windowHeight);
-#endif
     g_hud.Rebuild(windowWidth, windowHeight);
 }
 
 //------------------------------------------------------------------------------
-#if GLFW_VERSION_MAJOR>=3
-void windowClose(GLFWwindow*) {
+void windowClose(GLFWwindow*)
+{
     g_running = false;
 }
-#else
-int windowClose() {
+
+int windowClose()
+{
     g_running = false;
     return GL_TRUE;
 }
-#endif
 
 static void
 rebuildOsdMesh()
 {
-    static SimpleShape g_modelCube =
-        SimpleShape(catmark_cube, "catmark_cube", kCatmark);
-    createOsdMesh(g_modelCube.data, g_level, kCatmark);
+    delete g_mesh;
+    g_mesh = new Mesh(catmark_cube);
+    g_mesh->SetRefineLevel(g_level);
 
-    updateGeom();
-    refine();
+    g_mesh->UpdateGeom();
 }
 
 //------------------------------------------------------------------------------
 static void
-#if GLFW_VERSION_MAJOR>=3
-keyboard(GLFWwindow *, int key, int /* scancode */, int event, int /* mods */) {
-#else
-#define GLFW_KEY_ESCAPE GLFW_KEY_ESC
-keyboard(int key, int event) {
-#endif
-
+keyboard(GLFWwindow *, int key, int /* scancode */, int event, int /* mods */)
+{
     if (event == GLFW_RELEASE) return;
     if (g_hud.KeyDown(tolower(key))) return;
 
     if (key == 'G') {
-        g_frame++;
-        updateGeom();
-        refine();
+        g_mesh->UpdateGeom();
     }
 
     switch (key) {
@@ -851,33 +617,15 @@ callbackLevel(int l)
 }
 
 static void
-callbackSlider(float value, int /* data */)
-{
-    g_numInstances = (int)value;
-}
-
-static void
 callbackDisplayStyle(int b)
 {
     g_displayStyle = b;
 }
 
 static void
-callbackAdaptive(bool checked, int /* a */)
-{
-    if (OpenSubdiv::OsdGLDrawContext::SupportsAdaptiveTessellation()) {
-        g_adaptive = checked;
-        rebuildOsdMesh();
-    }
-}
-
-static void
 callbackCheckBox(bool checked, int button)
 {
     switch (button) {
-    case kHUD_CB_FREEZE:
-        g_freeze = checked;
-        break;
     }
 }
 
@@ -885,24 +633,14 @@ static void
 initHUD()
 {
     int windowWidth = g_width, windowHeight = g_height;
-#if GLFW_VERSION_MAJOR>=3
     // window size might not match framebuffer size on a high DPI display
     glfwGetWindowSize(g_window, &windowWidth, &windowHeight);
-#endif
     g_hud.Init(windowWidth, windowHeight);
 
     int shading_pulldown = g_hud.AddPullDown("Shading (W)", 10, 10, 250, callbackDisplayStyle, 'w');
     g_hud.AddPullDownButton(shading_pulldown, "Wire", kWire, g_displayStyle==kWire);
     g_hud.AddPullDownButton(shading_pulldown, "Shaded", kShaded, g_displayStyle==kShaded);
     g_hud.AddPullDownButton(shading_pulldown, "Wire+Shaded", kWireShaded, g_displayStyle==kWireShaded);
-    g_hud.AddPullDownButton(shading_pulldown, "Varying", kVarying, g_displayStyle==kVarying);
-    g_hud.AddPullDownButton(shading_pulldown, "Varying(Interleaved)", kVaryingInterleaved, g_displayStyle==kVaryingInterleaved);
-
-    g_hud.AddCheckBox("Freeze (spc)", g_freeze != 0,
-                      10, 150, callbackCheckBox, kHUD_CB_FREEZE, ' ');
-
-    if (OpenSubdiv::OsdGLDrawContext::SupportsAdaptiveTessellation())
-        g_hud.AddCheckBox("Adaptive (`)", g_adaptive!=0, 10, 190, callbackAdaptive, 0, '`');
 
     for (int i = 1; i < 11; ++i) {
         char level[16];
@@ -938,11 +676,9 @@ callbackError(OpenSubdiv::OsdErrorType err, const char *message)
 static void
 setGLCoreProfile()
 {
-#if GLFW_VERSION_MAJOR>=3
     #define glfwOpenWindowHint glfwWindowHint
     #define GLFW_OPENGL_VERSION_MAJOR GLFW_CONTEXT_VERSION_MAJOR
     #define GLFW_OPENGL_VERSION_MINOR GLFW_CONTEXT_VERSION_MINOR
-#endif
 
     glfwOpenWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 #if not defined(__APPLE__)
@@ -983,7 +719,6 @@ int main(int argc, char ** argv)
     setGLCoreProfile();
 #endif
 
-#if GLFW_VERSION_MAJOR>=3
     if (not (g_window=glfwCreateWindow(g_width, g_height, windowTitle, NULL, NULL))) {
         printf("Failed to open window.\n");
         glfwTerminate();
@@ -999,20 +734,6 @@ int main(int argc, char ** argv)
     glfwSetCursorPosCallback(g_window, motion);
     glfwSetMouseButtonCallback(g_window, mouse);
     glfwSetWindowCloseCallback(g_window, windowClose);
-#else
-    if (glfwOpenWindow(g_width, g_height, 8, 8, 8, 8, 24, 8, GLFW_WINDOW) == GL_FALSE) {
-        printf("Failed to open window.\n");
-        glfwTerminate();
-        return 1;
-    }
-    glfwSetWindowTitle(windowTitle);
-    glfwSetKeyCallback(keyboard);
-    glfwSetMousePosCallback(motion);
-    glfwSetMouseButtonCallback(mouse);
-    glfwSetWindowSizeCallback(reshape);
-    glfwSetWindowCloseCallback(windowClose);
-#endif
-
 
 #if defined(OSD_USES_GLEW)
 #ifdef CORE_PROFILE
@@ -1029,9 +750,6 @@ int main(int argc, char ** argv)
 #endif
 #endif
 
-    // activate feature adaptive tessellation if OSD supports it
-    g_adaptive = OpenSubdiv::OsdGLDrawContext::SupportsAdaptiveTessellation();
-
     initGL();
 
     glfwSwapInterval(0);
@@ -1042,12 +760,8 @@ int main(int argc, char ** argv)
     while (g_running) {
         display();
 
-#if GLFW_VERSION_MAJOR>=3
         glfwPollEvents();
         glfwSwapBuffers(g_window);
-#else
-        glfwSwapBuffers();
-#endif
 
         glFinish();
     }

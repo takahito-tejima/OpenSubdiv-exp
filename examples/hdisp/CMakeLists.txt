@@ -57,6 +57,8 @@ include_directories("${CMAKE_CURRENT_BINARY_DIR}")
 
 _add_glfw_executable(hdisp
     viewer.cpp
+    mesh.cpp
+    hdisp.cpp
     "${SHADER_FILES}"
     "${INC_FILES}"
     $<TARGET_OBJECTS:examples_common_obj>

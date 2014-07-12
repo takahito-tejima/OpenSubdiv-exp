@@ -28,6 +28,8 @@
 
 #include "../osd/opengl.h"
 
+#define GLEW_ARB_texture_buffer_object 1
+
 namespace OpenSubdiv {
 namespace OPENSUBDIV_VERSION {
 
