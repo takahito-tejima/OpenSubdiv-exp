@@ -73,7 +73,8 @@ static const char *shaderSource =
 
 enum DisplayStyle { kWire = 0,
                     kShaded,
-                    kWireShaded };
+                    kWireShaded,
+                    kSelect };
 
 enum HudCheckBox { kHUD_CB_SUPERPOSE,
                    kHUD_CB_ANIMATE };
@@ -227,6 +228,9 @@ EffectDrawRegistry::_CreateDrawSourceConfig(DescType const & desc)
         break;
     case kShaded:
         sconfig->commonShader.AddDefine("GEOMETRY_OUT_FILL");
+        break;
+    case kSelect:
+        sconfig->commonShader.AddDefine("SELECTION");
         break;
     }
 
@@ -719,6 +723,7 @@ initHUD()
     g_hud.AddPullDownButton(shading_pulldown, "Wire", kWire, g_displayStyle==kWire);
     g_hud.AddPullDownButton(shading_pulldown, "Shaded", kShaded, g_displayStyle==kShaded);
     g_hud.AddPullDownButton(shading_pulldown, "Wire+Shaded", kWireShaded, g_displayStyle==kWireShaded);
+    g_hud.AddPullDownButton(shading_pulldown, "Selection", kSelect, g_displayStyle==kSelect);
 
     g_hud.AddCheckBox("Animate (m)", g_animate != 0,
                       10, 60, callbackCheckBox, kHUD_CB_ANIMATE, 'm');

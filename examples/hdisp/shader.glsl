@@ -190,7 +190,7 @@ float edgeDistance(vec4 p, vec4 p0, vec4 p1)
             (p.y - p0.y) * (p1.x - p0.x)) / length(p1.xy - p0.xy);
 }
 
-void emit(int index, vec3 normal, vec4 edgeVerts[EDGE_VERTS])
+void emit(int index, vec3 point, vec3 normal, vec4 edgeVerts[EDGE_VERTS])
 {
     outpt.edgeDistance[0] =
         edgeDistance(edgeVerts[index], edgeVerts[0], edgeVerts[1]);
@@ -207,7 +207,7 @@ void emit(int index, vec3 normal, vec4 edgeVerts[EDGE_VERTS])
         edgeDistance(edgeVerts[index], edgeVerts[3], edgeVerts[0]);
 #endif
 
-    emit(index, normal);
+    emit(index, point, normal);
 }
 #endif
 
@@ -235,9 +235,9 @@ void main()
     edgeVerts[1].xy /= edgeVerts[1].w;
     edgeVerts[2].xy /= edgeVerts[2].w;
 
-    emit(0, n0, edgeVerts);
-    emit(1, n0, edgeVerts);
-    emit(2, n0, edgeVerts);
+    emit(0, P[0], n0, edgeVerts);
+    emit(1, P[1], n0, edgeVerts);
+    emit(2, P[2], n0, edgeVerts);
 #else
     emit(0, P[0], n0);
     emit(1, P[1], n0);
@@ -338,6 +338,14 @@ edgeColor(vec4 Cfill, vec4 edgeDistance)
 void
 main()
 {
+#ifdef SELECTION
+    vec4 color = vec4(1);
+    color.r = (int)(inpt.v.patchCoord.w)/255.0;
+
+    return;
+#endif
+
+
 #if 0
     vec4 du, dv;
     float disp = GetDisplacement(du, dv, inpt.v.patchCoord);
