@@ -26,6 +26,8 @@ public:
         return _hdisp;
     }
 
+    void DrawCage();
+
 private:
     OpenSubdiv::OsdCpuGLVertexBuffer *_vertexBuffer;
     OpenSubdiv::OsdCpuComputeContext *_computeContext;
@@ -36,8 +38,11 @@ private:
 
     std::vector<float> _orgPositions;
     std::vector<float> _positions;
+    std::vector<int> _coarseEdges;
 
     HDisplacement *_hdisp;
+    GLuint _cageEdgeVAO;
+    GLuint _cageEdgeVBO;
 };
 
 #endif // MESH_H

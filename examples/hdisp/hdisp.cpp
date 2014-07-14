@@ -82,6 +82,15 @@ HDisplacement::~HDisplacement()
     if (_texelsTexture) glDeleteTextures(1, &_texelsTexture);
 }
 
+void
+HDisplacement::Clear()
+{
+    for (int i = 0; i < _texels.size(); ++i) {
+        _texels[i] = 0;
+    }
+    UpdateTexture();
+}
+
 int
 HDisplacement::BindTexture(GLint program, GLint data, GLint packing, int samplerUnit)
 {
@@ -118,21 +127,32 @@ void
 HDisplacement::ApplyEdit(int face, int level, int index, float value)
 {
     // (1<<level)*(1<<level) indices.
-    if (face < 0 || face >= _numPtexFaces) return;
-    if (index < 0 || index >= (1<<level)*(1<<level)) return;
+    if (face < 0 || face >= _numPtexFaces ||
+        index < 0 || index >= (1<<level)*(1<<level)) {
+        printf("OB index %d, level %d\n", index, level);
+    }
 
-    int res = 1 << _faceRes;
+    int res = 1 << level;
     int width = res + 2 + res/2 + 2;
     int height = res + 2;
 
-    int u = computeMipmapOffsetU(_faceRes, level);
-    int v = computeMipmapOffsetV(_faceRes, level) + face*height;
-    u++;
-    v++;
+    int orgHeight = (1<<_faceRes) + 2;
+
+    int u = computeMipmapOffsetU(_faceRes, 4-level);
+    int v = computeMipmapOffsetV(_faceRes, 4-level) + face*orgHeight;
+    u += index%res;
+    v += index/res;
+    //printf("edit %d, %d level=%d, (%d)\n", u,v, level, res );
     // add index;
 
     _texels[v*_width+u] += value;
 
+    UpdateTexture();
+}
+
+void
+HDisplacement::UpdateTexture()
+{
     glBindTexture(GL_TEXTURE_2D_ARRAY, _texelsTexture);
     glTexImage3D(GL_TEXTURE_2D_ARRAY, 0,
                  GL_RGBA32F,

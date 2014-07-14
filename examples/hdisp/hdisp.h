@@ -37,6 +37,10 @@ public:
 
     void ApplyEdit(int face, int level, int index, float value);
 
+    void Clear();
+
+    void     UpdateTexture();
+
 private:
     std::vector<Edit> _edits;
     GLuint _layoutTexture;

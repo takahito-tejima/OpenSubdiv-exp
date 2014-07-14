@@ -55,11 +55,11 @@ public:
     virtual void BuildUI(GLhud * hud, int x, int y);
 
     void Screenshot() const;
+    virtual ~GLFrameBuffer();
 
 protected:
     friend class GLhud;
 
-    virtual ~GLFrameBuffer();
 
     GLuint getFrameBuffer() {
         return _frameBuffer;

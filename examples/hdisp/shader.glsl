@@ -340,11 +340,15 @@ main()
 {
 #ifdef SELECTION
     vec4 color = vec4(1);
-    color.r = (int)(inpt.v.patchCoord.w)/255.0;
+    color.r = int(inpt.v.patchCoord.w)/255.0;
+    color.g = inpt.v.patchCoord.x;
+    color.b = inpt.v.patchCoord.y;
+
+    outColor = color;
 
     return;
-#endif
 
+#else
 
 #if 0
     vec4 du, dv;
@@ -372,7 +376,20 @@ main()
 
     // mix highlight
     if (int(inpt.v.patchCoord.w) == selectedFace) {
-        color = mix(vec4(1,0,0,1), color, 0.8);
+        int l = 4 - hdispLevel;
+        int res = 1 << l;
+        float uofs = (selectedIndex%res)/float(res);
+        float vofs = (int(selectedIndex/res))/float(res);
+        float u0 = 0+uofs;
+        float v0 = 0+vofs;
+        float u1 = 1/float(res)+uofs;
+        float v1 = 1/float(res)+vofs;
+        if (inpt.v.patchCoord.x > u0 &&
+            inpt.v.patchCoord.y > v0 &&
+            inpt.v.patchCoord.x < u1 &&
+            inpt.v.patchCoord.y < v1) {
+            color = mix(vec4(1,0,0,1), color, 0.8);
+        }
     }
 
 
@@ -383,6 +400,7 @@ main()
 #endif
 
     outColor = Cf;
+#endif // SELECTION
 }
 #endif
 

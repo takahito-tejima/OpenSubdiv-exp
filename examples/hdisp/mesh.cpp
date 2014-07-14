@@ -7,6 +7,7 @@
 #include <common/shape_utils.h>
 #include "mesh.h"
 #include "hdisp.h"
+#include "drawUtils.h"
 
 typedef OpenSubdiv::HbrMesh<OpenSubdiv::OsdVertex>     OsdHbrMesh;
 typedef OpenSubdiv::HbrVertex<OpenSubdiv::OsdVertex>   OsdHbrVertex;
@@ -22,6 +23,9 @@ Mesh::Mesh(const std::string &shape) :
 
     // allocate ptex
     _hdisp = new HDisplacement(hmesh);
+
+    glGenVertexArrays(1, &_cageEdgeVAO);
+    glGenBuffers(1, &_cageEdgeVBO);
 }
 
 Mesh::~Mesh()
@@ -62,6 +66,19 @@ Mesh::SetRefineLevel(int level)
         _orgPositions[i*3+1] -= center[1];
         _orgPositions[i*3+2] -= center[2];
     }
+    _positions.resize(_orgPositions.size());
+
+    // save coarse topology (used for coarse mesh drawing)
+    _coarseEdges.clear();
+    int nf = hmesh->GetNumFaces();
+    for(int i=0; i<nf; ++i) {
+        OsdHbrFace *face = hmesh->GetFace(i);
+        int nv = face->GetNumVertices();
+        for(int j=0; j<nv; ++j) {
+            _coarseEdges.push_back(face->GetVertex(j)->GetID());
+            _coarseEdges.push_back(face->GetVertex((j+1)%nv)->GetID());
+        }
+    }
 
     // FAR
     FarMeshFactory<OsdVertex> meshFactory(hmesh, level, true);
@@ -87,20 +104,20 @@ Mesh::UpdateGeom(float deform)
 {
     int nverts = (int)_orgPositions.size() / 3;
 
-    std::vector<float> vertex(3 * nverts);
-    float *d = &vertex[0];
+    float *d = &_positions[0];
     const float *p = &_orgPositions[0];
 
-    float r = sin(deform*0.01f);
+    float r = sin(deform*6.28);
     for (int j = 0; j < nverts; ++j) {
-        float ct = cos(p[2] * r);
-        float st = sin(p[2] * r);
+        float x = p[2]+0.5;
+        float ct = sin(x * r);
+        float st = cos(x * r);
         *d++ = p[0]*ct + p[1]*st;
         *d++ = -p[0]*st + p[1]*ct;
         *d++ = p[2];
         p += 3;
     }
-    _vertexBuffer->UpdateData(&vertex[0], 0, nverts);
+    _vertexBuffer->UpdateData(&_positions[0], 0, nverts);
 
     static OpenSubdiv::OsdCpuComputeController controller;
     controller.Refine(_computeContext,
@@ -112,4 +129,32 @@ GLuint
 Mesh::BindVertexBuffer()
 {
     return _vertexBuffer->BindVBO();
+}
+
+void
+Mesh::DrawCage()
+{
+    std::vector<float> vbo;
+    vbo.reserve(_coarseEdges.size() * 3);
+    for (int i = 0; i < (int)_coarseEdges.size(); i+=2) {
+        for (int j = 0; j < 2; ++j) {
+            vbo.push_back(_positions[_coarseEdges[i+j]*3]);
+            vbo.push_back(_positions[_coarseEdges[i+j]*3+1]);
+            vbo.push_back(_positions[_coarseEdges[i+j]*3+2]);
+        }
+    }
+
+    glBindVertexArray(_cageEdgeVAO);
+
+    glBindBuffer(GL_ARRAY_BUFFER, _cageEdgeVBO);
+    glBufferData(GL_ARRAY_BUFFER, (int)vbo.size() * sizeof(float), &vbo[0],
+                 GL_STATIC_DRAW);
+
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof (GLfloat) * 3, 0);
+
+    glDrawArrays(GL_LINES, 0, (int)_coarseEdges.size());
+
+    glDisableVertexAttribArray(0);
+    glBindVertexArray(0);
 }

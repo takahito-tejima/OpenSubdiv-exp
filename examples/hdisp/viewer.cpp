@@ -54,6 +54,7 @@
 
 
 #include <shapes/catmark_cube.h>
+#include <shapes/catmark_dart_edgecorner.h>
 
 #include "../common/simple_math.h"
 #include "../common/gl_hud.h"
@@ -68,6 +69,7 @@ static const char *shaderSource =
 
 #include "mesh.h"
 #include "hdisp.h"
+#include "drawUtils.h"
 
 // ---------------------------------------------------------------------------
 
@@ -85,9 +87,9 @@ int   g_displayStyle = kShaded,
       g_mmods,
       g_running = 1,
     g_hdispLevel = 1,
-    g_superpose = 1,
-    g_animate = 0,
-    g_frame = 0;
+    g_superpose = 1;
+
+float g_deform = 0;
 
 float g_displaceScale = 1.0;
 
@@ -104,12 +106,13 @@ int   g_width = 1024,
       g_height = 1024;
 
 GLhud g_hud;
+DrawUtils g_drawUtils;
 
 // geometry
 Mesh *g_mesh = NULL;
 
 int g_level = 2;
-int g_tessLevel = 4;
+int g_tessLevel = 6;
 int g_tessLevelMin = 1;
 
 int g_selectedFace = -1;
@@ -128,8 +131,63 @@ struct Transform {
     float ModelViewProjectionMatrix[16];
 } g_transformData;
 
+
 GLuint g_queries[2] = {0, 0};
 GLuint g_vao = 0;
+
+struct FrameBuffer {
+    FrameBuffer() : frameBuffer(0), colorTexture(0), depthTexture(0) { }
+    ~FrameBuffer() {
+        if (frameBuffer) glDeleteFramebuffers(1, &frameBuffer);
+        if (colorTexture) glDeleteTextures(1, &colorTexture);
+        if (depthTexture) glDeleteTextures(1, &depthTexture);
+    }
+
+    void Init(int width, int height) {
+        glGenFramebuffers(1, &frameBuffer);
+        glGenTextures(1, &colorTexture);
+        glGenTextures(1, &depthTexture);
+
+        glBindTexture(GL_TEXTURE_2D, colorTexture);
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+        glBindTexture(GL_TEXTURE_2D, depthTexture);
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+        glBindFramebuffer(GL_FRAMEBUFFER, frameBuffer);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                               GL_TEXTURE_2D, colorTexture, 0);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                               GL_TEXTURE_2D, depthTexture, 0);
+
+        Resize(width, height);
+    }
+
+    void Resize(int width, int height) {
+        glBindTexture(GL_TEXTURE_2D, colorTexture);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0,
+                     GL_RGBA, GL_UNSIGNED_BYTE, 0);
+        glBindTexture(GL_TEXTURE_2D, depthTexture);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, width, height, 0,
+                     GL_DEPTH_COMPONENT, GL_FLOAT, 0);
+        glBindTexture(GL_TEXTURE_2D, 0);
+
+        GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        if (status != GL_FRAMEBUFFER_COMPLETE)
+            assert(false);
+    }
+
+    GLuint frameBuffer;
+    GLuint colorTexture;
+    GLuint depthTexture;
+
+} g_selectionBuffer;
 
 //------------------------------------------------------------------------------
 static void
@@ -197,6 +255,8 @@ EffectDrawRegistry::_CreateDrawSourceConfig(DescType const & desc)
     sconfig->fragmentShader.source = shaderSource;
     sconfig->fragmentShader.version = glslVersion;
     sconfig->fragmentShader.AddDefine("FRAGMENT_SHADER");
+
+    sconfig->commonShader.AddDefine("OSD_ENABLE_SCREENSPACE_TESSELLATION");
 
     if (desc.first.GetType() == OpenSubdiv::FarPatchTables::QUADS) {
         // uniform catmark, bilinear
@@ -403,8 +463,7 @@ bindProgram(Effect effect, OpenSubdiv::OsdDrawContext::PatchArray const & patch)
 
 //------------------------------------------------------------------------------
 static int
-drawPatches(OpenSubdiv::OsdDrawContext::PatchArrayVector const &patches,
-            GLfloat const *color)
+drawPatches(OpenSubdiv::OsdDrawContext::PatchArrayVector const &patches)
 {
     int numDrawCalls = 0;
     for (int i=0; i<(int)patches.size(); ++i) {
@@ -449,7 +508,7 @@ drawPatches(OpenSubdiv::OsdDrawContext::PatchArrayVector const &patches,
 
         GLuint uniformColor =
           glGetUniformLocation(program, "diffuseColor");
-        glProgramUniform4f(program, uniformColor, color[0], color[1], color[2], 1);
+        glProgramUniform4f(program, uniformColor, 0.8f, 0.8f, 0.8f, 1);
 
         GLuint uniformGregoryQuadOffsetBase =
           glGetUniformLocation(program, "GregoryQuadOffsetBase");
@@ -473,20 +532,8 @@ drawPatches(OpenSubdiv::OsdDrawContext::PatchArrayVector const &patches,
 }
 
 static void
-idle() {
-    ++g_frame;
-    if (g_animate) {
-        g_mesh->UpdateGeom(g_frame);
-    }
-}
-
-static void
-display() {
-
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-    glViewport(0, 0, g_width, g_height);
-
+draw()
+{
     // prepare view matrix
     double aspect = g_width/(double)g_height;
     identity(g_transformData.ModelViewMatrix);
@@ -517,26 +564,45 @@ display() {
 
     OpenSubdiv::OsdDrawContext::PatchArrayVector const & patches =
         g_mesh->GetDrawContext()->patchArrays;
-    int numDrawCalls = 0;
-    // primitive counting
-    glBeginQuery(GL_PRIMITIVES_GENERATED, g_queries[0]);
-    glBeginQuery(GL_TIME_ELAPSED, g_queries[1]);
 
-    // draw instances with same topology
-    GLfloat color[3] = {1.0, 1.0, 0.5};
-    numDrawCalls += drawPatches(patches, color);
-
-    glEndQuery(GL_PRIMITIVES_GENERATED);
-    glEndQuery(GL_TIME_ELAPSED);
+    drawPatches(patches);
 
     glBindVertexArray(0);
 
     glUseProgram(0);
 
+}
+
+static void
+display()
+{
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glViewport(0, 0, g_width, g_height);
+
+    int numDrawCalls = 0;
+    // primitive counting
+    glBeginQuery(GL_PRIMITIVES_GENERATED, g_queries[0]);
+    glBeginQuery(GL_TIME_ELAPSED, g_queries[1]);
+
+    draw();
+
+    glEndQuery(GL_PRIMITIVES_GENERATED);
+    glEndQuery(GL_TIME_ELAPSED);
+
     GLuint numPrimsGenerated = 0;
     GLuint timeElapsed = 0;
     glGetQueryObjectuiv(g_queries[0], GL_QUERY_RESULT, &numPrimsGenerated);
     glGetQueryObjectuiv(g_queries[1], GL_QUERY_RESULT, &timeElapsed);
+
+    {
+        g_drawUtils.SetModelViewProjection(g_transformData.ModelViewProjectionMatrix);
+        g_drawUtils.Bind();
+        g_mesh->DrawCage();
+        g_drawUtils.Unbind();
+    }
 
     if (g_hud.IsVisible()) {
         g_hud.DrawString(10, -180, "Tess level  : %d", g_tessLevel);
@@ -545,8 +611,47 @@ display() {
 
         g_hud.Flush();
     }
+}
 
-    glFinish();
+static void
+select(int x, int y)
+{
+    glBindFramebuffer(GL_FRAMEBUFFER, g_selectionBuffer.frameBuffer);
+
+    glClearColor(0, 0, 0, 0);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glViewport(0, 0, g_width, g_height);
+
+    int prevStyle = g_displayStyle;
+    g_displayStyle = kSelect;
+    draw();
+    g_displayStyle = prevStyle;
+
+
+    // XXX: very inefficient.
+#if 0
+    std::vector<unsigned char> buffer(g_width*g_height*3);
+    glBindTexture(GL_TEXTURE_2D, g_selectionBuffer.colorTexture);
+    glGetTexImage(GL_TEXTURE_2D, 0, GL_RGB, GL_UNSIGNED_BYTE, &buffer[0]);
+    unsigned char *p = &buffer[((g_height-y-1)*g_width + x)*3];
+#endif
+    unsigned char p[3];
+    glReadPixels(x, g_height-y-1, 1, 1, GL_RGB, GL_UNSIGNED_BYTE, p);
+    //printf("Pick %d %d %d\n", p[0], p[1], p[2]);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    g_selectedFace = p[0];
+
+    // determine index
+    int res = 1 << g_hdispLevel;
+    int u = (int)((p[1]/255.0)*res);
+    int v = (int)((p[2]/255.0)*res);
+    g_selectedIndex = v * res + u;
+
+    //printf("Selected face = %d, index = %d\n", g_selectedFace, g_selectedIndex);
+
+    display();
 }
 
 //------------------------------------------------------------------------------
@@ -559,7 +664,7 @@ motion(GLFWwindow *, double dx, double dy)
         g_hud.MouseMotion(x, y);
     } else if (g_mbutton[0] && (g_mmods & GLFW_MOD_CONTROL)) {
         float v = (x - g_prev_x)*0.1;
-        g_mesh->GetHDisplacement()->ApplyEdit(g_selectedFace, 4-g_hdispLevel, g_selectedIndex, v);
+        g_mesh->GetHDisplacement()->ApplyEdit(g_selectedFace, g_hdispLevel, g_selectedIndex, v);
     } else if (g_mbutton[0] && !g_mbutton[1] && !g_mbutton[2]) {
         // orbit
         g_rotate[0] += x - g_prev_x;
@@ -577,6 +682,11 @@ motion(GLFWwindow *, double dx, double dy)
 
     g_prev_x = x;
     g_prev_y = y;
+
+    if ((g_mmods & GLFW_MOD_CONTROL)==0){
+        select(g_prev_x, g_prev_y);
+    }
+    display();
 }
 
 //------------------------------------------------------------------------------
@@ -586,12 +696,17 @@ mouse(GLFWwindow *, int button, int state, int mods)
     if (state == GLFW_RELEASE) {
         g_hud.MouseRelease();
         g_mbutton[0] = g_mbutton[1] = g_mbutton[2] = 0;
+        mods = 0;
     }
 
     g_mmods = mods;
 
     if (button == 0 && state == GLFW_PRESS && g_hud.MouseClick(g_prev_x, g_prev_y))
         return;
+
+    if (button == 0 && state == GLFW_PRESS) {
+        select(g_prev_x, g_prev_y);
+    }
 
     if (button < 3) {
         g_mbutton[button] = (state == GLFW_PRESS);
@@ -620,6 +735,8 @@ reshape(GLFWwindow *, int width, int height)
     // window size might not match framebuffer size on a high DPI display
     glfwGetWindowSize(g_window, &windowWidth, &windowHeight);
     g_hud.Rebuild(windowWidth, windowHeight);
+
+    g_selectionBuffer.Resize(width, height);
 }
 
 //------------------------------------------------------------------------------
@@ -639,6 +756,8 @@ rebuildOsdMesh()
 {
     delete g_mesh;
     g_mesh = new Mesh(catmark_cube);
+    g_mesh = new Mesh(catmark_dart_edgecorner);
+//    g_defaultShapes.push_back(SimpleShape(catmark_car, "catmark_car", kCatmark));
     g_mesh->SetRefineLevel(g_level);
 
     g_mesh->UpdateGeom(0);
@@ -656,6 +775,7 @@ keyboard(GLFWwindow *, int key, int /* scancode */, int event, int /* mods */)
     }
 
     switch (key) {
+    case 'C': g_mesh->GetHDisplacement()->Clear(); break;
     case 'Q': g_running = 0; break;
     case 'F': fitFrame(); break;
     case '+':
@@ -671,6 +791,7 @@ keyboard(GLFWwindow *, int key, int /* scancode */, int event, int /* mods */)
         break;
     case GLFW_KEY_ESCAPE: g_hud.SetVisible(!g_hud.IsVisible()); break;
     }
+    display();
 }
 
 //------------------------------------------------------------------------------
@@ -695,9 +816,6 @@ callbackCheckBox(bool checked, int button)
     case kHUD_CB_SUPERPOSE:
         g_superpose = checked;
         break;
-    case kHUD_CB_ANIMATE:
-        g_animate = checked;
-        break;
     }
 }
 
@@ -708,6 +826,10 @@ callbackSlider(float value, int data)
         g_hdispLevel = (int)ceil(value);
     } else if (data == 1) {
         g_displaceScale = value;
+    } else if (data == 2) {
+        g_deform = value;
+        g_mesh->UpdateGeom(g_deform);
+        display();
     }
 }
 
@@ -725,13 +847,13 @@ initHUD()
     g_hud.AddPullDownButton(shading_pulldown, "Wire+Shaded", kWireShaded, g_displayStyle==kWireShaded);
     g_hud.AddPullDownButton(shading_pulldown, "Selection", kSelect, g_displayStyle==kSelect);
 
-    g_hud.AddCheckBox("Animate (m)", g_animate != 0,
-                      10, 60, callbackCheckBox, kHUD_CB_ANIMATE, 'm');
     g_hud.AddCheckBox("Superpose (S)", g_superpose != 0,
                       10, 80, callbackCheckBox, kHUD_CB_SUPERPOSE, 's');
     g_hud.AddSlider("Hierarchy Level", 1, 4, g_hdispLevel, 10, 100, 20, true, callbackSlider, 0);
     g_hud.AddSlider("Displacement Scale", 0, 1.0, g_displaceScale,
                     10, 140, 20, false, callbackSlider, 1);
+    g_hud.AddSlider("Deform", 0, 1.0, g_deform,
+                    10, 170, 20, false, callbackSlider, 2);
 
     for (int i = 1; i < 11; ++i) {
         char level[16];
@@ -753,6 +875,8 @@ initGL()
     glGenQueries(2, g_queries);
 
     glGenVertexArrays(1, &g_vao);
+
+    g_selectionBuffer.Init(g_width, g_height);
 }
 
 //------------------------------------------------------------------------------
@@ -843,18 +967,17 @@ int main(int argc, char ** argv)
 
     initGL();
 
+    g_drawUtils.Init();
+
     glfwSwapInterval(0);
 
     initHUD();
     rebuildOsdMesh();
 
     while (g_running) {
-        idle();
+        glfwWaitEvents();
         display();
-
-        glfwPollEvents();
         glfwSwapBuffers(g_window);
-
         glFinish();
     }
 

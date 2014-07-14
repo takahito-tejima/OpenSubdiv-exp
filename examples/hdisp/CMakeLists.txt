@@ -59,6 +59,7 @@ _add_glfw_executable(hdisp
     viewer.cpp
     mesh.cpp
     hdisp.cpp
+    drawUtils.cpp
     "${SHADER_FILES}"
     "${INC_FILES}"
     $<TARGET_OBJECTS:examples_common_obj>
