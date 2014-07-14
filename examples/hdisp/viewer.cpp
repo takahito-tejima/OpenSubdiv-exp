@@ -75,12 +75,20 @@ enum DisplayStyle { kWire = 0,
                     kShaded,
                     kWireShaded };
 
-enum HudCheckBox { kHUD_CB_FREEZE };
+enum HudCheckBox { kHUD_CB_SUPERPOSE,
+                   kHUD_CB_ANIMATE };
 
 // GUI variables
 int   g_displayStyle = kShaded,
       g_mbutton[3] = {0, 0, 0},
-      g_running = 1;
+      g_mmods,
+      g_running = 1,
+    g_hdispLevel = 1,
+    g_superpose = 1,
+    g_animate = 0,
+    g_frame = 0;
+
+float g_displaceScale = 1.0;
 
 float g_rotate[2] = {0, 0},
       g_dolly = 5,
@@ -100,8 +108,11 @@ GLhud g_hud;
 Mesh *g_mesh = NULL;
 
 int g_level = 2;
-int g_tessLevel = 1;
+int g_tessLevel = 4;
 int g_tessLevelMin = 1;
+
+int g_selectedFace = -1;
+int g_selectedIndex = 0;
 
 GLuint g_transformUB = 0,
        g_transformBinding = 0,
@@ -420,6 +431,18 @@ drawPatches(OpenSubdiv::OsdDrawContext::PatchArrayVector const &patches,
         sampler = g_mesh->GetHDisplacement()->BindTexture(
             program, texData, texPacking, sampler);
 
+        GLint hdispLevel = glGetUniformLocation(program, "hdispLevel");
+        glProgramUniform1i(program, hdispLevel, 4-g_hdispLevel);
+        GLint superpose = glGetUniformLocation(program, "superpose");
+        glProgramUniform1i(program, superpose, g_superpose);
+        GLint hdispScale = glGetUniformLocation(program, "displaceScale");
+        glProgramUniform1f(program, hdispScale, g_displaceScale);
+
+        GLint selface = glGetUniformLocation(program, "selectedFace");
+        glProgramUniform1i(program, selface, g_selectedFace);
+        GLint selindex = glGetUniformLocation(program, "selectedIndex");
+        glProgramUniform1i(program, selindex, g_selectedIndex);
+
         GLuint uniformColor =
           glGetUniformLocation(program, "diffuseColor");
         glProgramUniform4f(program, uniformColor, color[0], color[1], color[2], 1);
@@ -443,6 +466,14 @@ drawPatches(OpenSubdiv::OsdDrawContext::PatchArrayVector const &patches,
         ++numDrawCalls;
     }
     return numDrawCalls;
+}
+
+static void
+idle() {
+    ++g_frame;
+    if (g_animate) {
+        g_mesh->UpdateGeom(g_frame);
+    }
 }
 
 static void
@@ -519,7 +550,13 @@ static void
 motion(GLFWwindow *, double dx, double dy)
 {
     int x=(int)dx, y=(int)dy;
-    if (g_mbutton[0] && !g_mbutton[1] && !g_mbutton[2]) {
+
+    if (g_hud.MouseCapture()) {
+        g_hud.MouseMotion(x, y);
+    } else if (g_mbutton[0] && (g_mmods & GLFW_MOD_CONTROL)) {
+        float v = (x - g_prev_x)*0.1;
+        g_mesh->GetHDisplacement()->ApplyEdit(g_selectedFace, 4-g_hdispLevel, g_selectedIndex, v);
+    } else if (g_mbutton[0] && !g_mbutton[1] && !g_mbutton[2]) {
         // orbit
         g_rotate[0] += x - g_prev_x;
         g_rotate[1] += y - g_prev_y;
@@ -540,8 +577,15 @@ motion(GLFWwindow *, double dx, double dy)
 
 //------------------------------------------------------------------------------
 static void
-mouse(GLFWwindow *, int button, int state, int /* mods */)
+mouse(GLFWwindow *, int button, int state, int mods)
 {
+    if (state == GLFW_RELEASE) {
+        g_hud.MouseRelease();
+        g_mbutton[0] = g_mbutton[1] = g_mbutton[2] = 0;
+    }
+
+    g_mmods = mods;
+
     if (button == 0 && state == GLFW_PRESS && g_hud.MouseClick(g_prev_x, g_prev_y))
         return;
 
@@ -593,7 +637,7 @@ rebuildOsdMesh()
     g_mesh = new Mesh(catmark_cube);
     g_mesh->SetRefineLevel(g_level);
 
-    g_mesh->UpdateGeom();
+    g_mesh->UpdateGeom(0);
 }
 
 //------------------------------------------------------------------------------
@@ -604,16 +648,24 @@ keyboard(GLFWwindow *, int key, int /* scancode */, int event, int /* mods */)
     if (g_hud.KeyDown(tolower(key))) return;
 
     if (key == 'G') {
-        g_mesh->UpdateGeom();
+        g_mesh->UpdateGeom(0);
     }
 
     switch (key) {
-        case 'Q': g_running = 0; break;
-        case 'F': fitFrame(); break;
-        case '+':
-        case '=': g_tessLevel++; break;
-        case '-': g_tessLevel = std::max(g_tessLevelMin, g_tessLevel-1); break;
-        case GLFW_KEY_ESCAPE: g_hud.SetVisible(!g_hud.IsVisible()); break;
+    case 'Q': g_running = 0; break;
+    case 'F': fitFrame(); break;
+    case '+':
+    case '=': g_tessLevel++; break;
+    case '-': g_tessLevel = std::max(g_tessLevelMin, g_tessLevel-1); break;
+    case GLFW_KEY_LEFT:
+        --g_selectedFace;
+        if (g_selectedFace == -2) g_selectedFace = g_mesh->GetHDisplacement()->GetNumPtexFaces()-1;
+        break;
+    case GLFW_KEY_RIGHT:
+        ++g_selectedFace;
+        if (g_selectedFace >= g_mesh->GetHDisplacement()->GetNumPtexFaces()) g_selectedFace = -1;
+        break;
+    case GLFW_KEY_ESCAPE: g_hud.SetVisible(!g_hud.IsVisible()); break;
     }
 }
 
@@ -636,6 +688,22 @@ static void
 callbackCheckBox(bool checked, int button)
 {
     switch (button) {
+    case kHUD_CB_SUPERPOSE:
+        g_superpose = checked;
+        break;
+    case kHUD_CB_ANIMATE:
+        g_animate = checked;
+        break;
+    }
+}
+
+static void
+callbackSlider(float value, int data)
+{
+    if (data == 0) {
+        g_hdispLevel = (int)ceil(value);
+    } else if (data == 1) {
+        g_displaceScale = value;
     }
 }
 
@@ -651,6 +719,14 @@ initHUD()
     g_hud.AddPullDownButton(shading_pulldown, "Wire", kWire, g_displayStyle==kWire);
     g_hud.AddPullDownButton(shading_pulldown, "Shaded", kShaded, g_displayStyle==kShaded);
     g_hud.AddPullDownButton(shading_pulldown, "Wire+Shaded", kWireShaded, g_displayStyle==kWireShaded);
+
+    g_hud.AddCheckBox("Animate (m)", g_animate != 0,
+                      10, 60, callbackCheckBox, kHUD_CB_ANIMATE, 'm');
+    g_hud.AddCheckBox("Superpose (S)", g_superpose != 0,
+                      10, 80, callbackCheckBox, kHUD_CB_SUPERPOSE, 's');
+    g_hud.AddSlider("Hierarchy Level", 1, 4, g_hdispLevel, 10, 100, 20, true, callbackSlider, 0);
+    g_hud.AddSlider("Displacement Scale", 0, 1.0, g_displaceScale,
+                    10, 140, 20, false, callbackSlider, 1);
 
     for (int i = 1; i < 11; ++i) {
         char level[16];
@@ -768,6 +844,7 @@ int main(int argc, char ** argv)
     rebuildOsdMesh();
 
     while (g_running) {
+        idle();
         display();
 
         glfwPollEvents();

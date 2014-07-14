@@ -83,7 +83,7 @@ Mesh::SetRefineLevel(int level)
 }
 
 void
-Mesh::UpdateGeom()
+Mesh::UpdateGeom(float deform)
 {
     int nverts = (int)_orgPositions.size() / 3;
 
@@ -91,9 +91,12 @@ Mesh::UpdateGeom()
     float *d = &vertex[0];
     const float *p = &_orgPositions[0];
 
+    float r = sin(deform*0.01f);
     for (int j = 0; j < nverts; ++j) {
-        *d++ = p[0];
-        *d++ = p[1];
+        float ct = cos(p[2] * r);
+        float st = sin(p[2] * r);
+        *d++ = p[0]*ct + p[1]*st;
+        *d++ = -p[0]*st + p[1]*ct;
         *d++ = p[2];
         p += 3;
     }

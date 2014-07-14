@@ -20,7 +20,7 @@ public:
 
     GLuint BindVertexBuffer();
 
-    void UpdateGeom();
+    void UpdateGeom(float deform);
 
     HDisplacement *GetHDisplacement() const {
         return _hdisp;
@@ -32,6 +32,7 @@ private:
     OpenSubdiv::OsdGLDrawContext *_drawContext;
     OpenSubdiv::FarKernelBatchVector _kernelBatches;
     std::string _shape;
+    int _numPtexFaces;
 
     std::vector<float> _orgPositions;
     std::vector<float> _positions;

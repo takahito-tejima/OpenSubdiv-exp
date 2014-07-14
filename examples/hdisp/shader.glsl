@@ -84,6 +84,32 @@ int OsdBaseVertex()
 #endif
 }
 
+uniform int hdispLevel;
+uniform int superpose;
+uniform sampler2DArray textureImage_Data;
+uniform isamplerBuffer textureImage_Packing;
+
+float
+GetDisplacement(vec4 patchCoord)
+{
+    int maxMipmap = 5;
+    float disp = 0;
+    if (superpose == 1) {
+        for (int i = 0; i < maxMipmap; ++i) {
+            disp += PtexMipmapLookupQuadratic(patchCoord,
+                                             i,
+                                             textureImage_Data,
+                                             textureImage_Packing).x;
+        }
+    } else {
+        disp = PtexMipmapLookupQuadratic(patchCoord,
+                                         hdispLevel,
+                                         textureImage_Data,
+                                         textureImage_Packing).x;
+    }
+    return disp;
+}
+
 //--------------------------------------------------------------
 // Vertex Shader
 //--------------------------------------------------------------
@@ -134,17 +160,23 @@ out block {
     noperspective out vec4 edgeDistance;
 } outpt;
 
-void emit(int index, vec3 normal)
-{
-    outpt.v.position = inpt[index].v.position;
-#ifdef SMOOTH_NORMALS
-    outpt.v.normal = inpt[index].v.normal;
-#else
-    outpt.v.normal = normal;
-#endif
-    outpt.v.patchCoord = inpt[index].v.patchCoord;
+uniform float displaceScale;
 
-    gl_Position = ProjectionMatrix * inpt[index].v.position;
+void emit(int index, vec3 point, vec3 normal)
+{
+// #ifdef SMOOTH_NORMALS
+//     outpt.v.normal = inpt[index].v.normal;
+// #else
+//     outpt.v.normal = normal;
+// #endif
+
+    outpt.v.normal = normal;
+    outpt.v.position = vec4(point,1);
+    outpt.v.patchCoord = inpt[index].v.patchCoord;
+    outpt.v.tangent = inpt[index].v.tangent;
+    outpt.v.bitangent = inpt[index].v.bitangent;
+
+    gl_Position = ProjectionMatrix * vec4(point, 1);
     EmitVertex();
 }
 
@@ -183,39 +215,14 @@ void main()
 {
     gl_PrimitiveID = gl_PrimitiveIDIn;
 
-#ifdef PRIM_QUAD
-    vec3 A = (inpt[0].v.position - inpt[1].v.position).xyz;
-    vec3 B = (inpt[3].v.position - inpt[1].v.position).xyz;
-    vec3 C = (inpt[2].v.position - inpt[1].v.position).xyz;
-    vec3 n0 = normalize(cross(B, A));
+    vec3 P[3];
+    for (int i = 0; i < 3; ++i) {
+        P[i] = inpt[i].v.position.xyz + GetDisplacement(inpt[i].v.patchCoord)
+            * displaceScale * inpt[i].v.normal;
+    }
 
-#if defined(GEOMETRY_OUT_WIRE) || defined(GEOMETRY_OUT_LINE)
-    vec4 edgeVerts[EDGE_VERTS];
-    edgeVerts[0] = ProjectionMatrix * inpt[0].v.position;
-    edgeVerts[1] = ProjectionMatrix * inpt[1].v.position;
-    edgeVerts[2] = ProjectionMatrix * inpt[2].v.position;
-    edgeVerts[3] = ProjectionMatrix * inpt[3].v.position;
-
-    edgeVerts[0].xy /= edgeVerts[0].w;
-    edgeVerts[1].xy /= edgeVerts[1].w;
-    edgeVerts[2].xy /= edgeVerts[2].w;
-    edgeVerts[3].xy /= edgeVerts[3].w;
-
-    emit(0, n0, edgeVerts);
-    emit(1, n0, edgeVerts);
-    emit(3, n0, edgeVerts);
-    emit(2, n0, edgeVerts);
-#else
-    emit(0, n0);
-    emit(1, n0);
-    emit(3, n0);
-    emit(2, n0);
-#endif
-#endif // PRIM_QUAD
-
-#ifdef PRIM_TRI
-    vec3 A = (inpt[1].v.position - inpt[0].v.position).xyz;
-    vec3 B = (inpt[2].v.position - inpt[0].v.position).xyz;
+    vec3 A = (P[2] - P[0]).xyz;
+    vec3 B = (P[1] - P[0]).xyz;
     vec3 n0 = normalize(cross(B, A));
 
 #if defined(GEOMETRY_OUT_WIRE) || defined(GEOMETRY_OUT_LINE)
@@ -232,11 +239,10 @@ void main()
     emit(1, n0, edgeVerts);
     emit(2, n0, edgeVerts);
 #else
-    emit(0, n0);
-    emit(1, n0);
-    emit(2, n0);
+    emit(0, P[0], n0);
+    emit(1, P[1], n0);
+    emit(2, P[2], n0);
 #endif
-#endif // PRIM_TRI
 
     EndPrimitive();
 }
@@ -271,8 +277,10 @@ layout(std140) uniform Lighting {
 uniform vec4 diffuseColor = vec4(1);
 uniform vec4 ambientColor = vec4(1);
 
-uniform sampler2DArray textureImage_Data;
-uniform isamplerBuffer textureImage_Packing;
+
+uniform int selectedFace;
+uniform int selectedIndex;
+uniform float displaceScale;
 
 vec4
 lighting(vec4 diffuse, vec3 Peye, vec3 Neye)
@@ -330,12 +338,34 @@ edgeColor(vec4 Cfill, vec4 edgeDistance)
 void
 main()
 {
-    vec3 N = (gl_FrontFacing ? inpt.v.normal : -inpt.v.normal);
+#if 0
+    vec4 du, dv;
+    float disp = GetDisplacement(du, dv, inpt.v.patchCoord);
+    disp *= displaceScale;
+    du *= displaceScale;
+    dv *= displaceScale;
+    vec3 n = normalize(cross(inpt.v.tangent, inpt.v.bitangent));
+    vec3 tangent = inpt.v.tangent + n * du.x;
+    vec3 bitangent = inpt.v.bitangent + n * dv.x;
+    vec3 normal = normalize(cross(tangent, bitangent));
+#else
+    vec3 normal = inpt.v.normal;
+#endif
+    vec3 N = (gl_FrontFacing ? normal : -normal);
 
-    //vec4 color = diffuseColor;
+#if 1
+    vec4 color = diffuseColor;
+#else
     vec4 color = PtexLookupNearest(inpt.v.patchCoord,
+                                   hdispLevel,
                                    textureImage_Data,
                                    textureImage_Packing);
+#endif
+
+    // mix highlight
+    if (int(inpt.v.patchCoord.w) == selectedFace) {
+        color = mix(vec4(1,0,0,1), color, 0.8);
+    }
 
 
     vec4 Cf = lighting(color, inpt.v.position.xyz, N);
