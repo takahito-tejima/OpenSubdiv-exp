@@ -4,12 +4,28 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     <title>OpenSubdiv 3.0 WebGL viewer</title>
-    <script src="./jquery-latest.js" type="text/javascript"></script>
+    <link rel="stylesheet" href="//code.jquery.com/ui/1.11.2/themes/smoothness/jquery-ui.css">
+    <script src="//code.jquery.com/jquery-1.10.2.js"></script>
+    <script src="//code.jquery.com/ui/1.11.2/jquery-ui.js"></script>
     <script src="./glMatrix-0.9.5.min.js" type="text/javascript"></script>
     <script src="./view.js" type="text/javascript" ></script>
 
     <script id="shaderutil" type="x-shader/x-vertex">
     </script>
+
+    <script id="cageVS" type="x-shader/x-vertex">
+      attribute vec3 position;
+      uniform mat4 mvpMatrix;
+      void main() {
+        gl_Position = mvpMatrix * vec4(position, 1);
+      }
+    </script>
+    <script id="cageFS" type="x-shader/x-vertex">
+      void main() {
+        gl_FragColor = vec4(1, 1, 0, 1);
+      }
+    </script>
+
     <script id="vshader" type="x-shader/x-vertex">
       precision highp float;
       
@@ -25,40 +41,44 @@
 
       void main(){
         vec3 p = (modelViewMatrix * vec4(position.xyz, 1)).xyz;
-      //n = (modelViewMatrix * vec4(inNormal.xyz, 0)).xyz;
-        normal = normalize(inNormal.xyz);
+        normal = (modelViewMatrix * vec4(normalize(inNormal.xyz), 0)).xyz;
+      // normal = normalize(inNormal.xyz);
         uv = inUV;
         gl_Position = projMatrix * vec4(p, 1);
       }
     </script>
     <script id="fshader" type="x-shader/x-fragment">
+      #extension GL_OES_standard_derivatives : enable
+
       precision highp float;
       varying vec3 normal;
       varying vec4 uv;
 
+      uniform int displayMode;
+
       void main()
       {
          float d = dot(normal, vec3(0, 0, 1));
+         vec4 c = vec4(d,d,d,1);
+         if (displayMode == 2) c = vec4(normal, 1);
+         else if (displayMode == 3) c = vec4(uv.x, uv.y, 1, 1);
 
-         //vec4 c = vec4(d,d,d,1);
-         vec4 c = vec4(normal, 1);
-         //vec4 c = vec4(uv.x, uv.y, 1, 1);
+         if (displayMode == 1) {
+           vec2 vRel = fract(uv.zw);
+           float edge = max(1.0-vRel.x, max(1.0-vRel.y, max(vRel.x, vRel.y)));
 
-         vec2 vRel = fract(uv.zw);
-         float edge = max(1.0-vRel.x, max(1.0-vRel.y, max(vRel.x, vRel.y)));
-         edge = edge*edge;
-         edge = edge*edge;
-         edge = edge*edge;
-         edge = edge*edge;
-         edge = edge*edge;
-         edge = edge*edge;
-
-         gl_FragColor = mix(c, vec4(0,0,0,1), edge);
-
+           vec2 d = fwidth(vRel);
+           vec2 a2 = smoothstep(vec2(0), d*1.0, vRel);
+           edge = 1.0 -(a2.x + a2.y)*0.5;
+           c = mix(c, vec4(0,0,0,1), edge);
+         }
+         gl_FragColor = c;
       }
     </script>
 
     <style type="text/css">
+      body {
+      }
       canvas#main
       {
       cursor: default;
@@ -71,28 +91,55 @@
     </style>
   </head>	
   <body >
+    <h3>OpenSubdiv WebGL demo (3.0.0 beta)</h3>
     <canvas id="main" width="800" height="600" style="position:absolute;z-index:2;background-color:black"></canvas>
     <div id="control">
     <span id="fps"></span> fps<br>
     <span id="triangles"></span> triangles<br>
-    <select id="modelSelect" size=20>
+    <input id="deformCheckbox" type="checkbox"><label for="deformCheckbox">Animation</label><br>
+    <br>
+
+    Tess factor
+    <div id="tessFactorRadio">
+      <input type="radio" id="tf1" name="tessFactorRadio" checked="checked"><label for="tf1">1</label>
+      <input type="radio" id="tf2" name="tessFactorRadio"><label for="tf2">2</label>
+      <input type="radio" id="tf3" name="tessFactorRadio"><label for="tf3">3</label>
+      <input type="radio" id="tf4" name="tessFactorRadio"><label for="tf4">4</label>
+      <input type="radio" id="tf5" name="tessFactorRadio"><label for="tf5">5</label>
+      <input type="radio" id="tf6" name="tessFactorRadio"><label for="tf6">6</label>
+    </div>
+
+    Model
+    <div>
+    <select id="modelSelect" style="width:200px" size=20>
       <option value="cube" selected>cube</option>
+      <option value="catmark_cube_creases0">catmark_cube_creases0</option>
+      <option value="catmark_cube_creases2">catmark_cube_creases2</option>
+      <option value="catmark_dart_edgeconrner">catmark_dart_edgecorner</option>
+      <option value="catmark_torus_creases0">catmark_torus_creases0</option>
+      <option value="catmark_helmet">catmark_helmet</option>
+      <option value="catmark_car">catmark_car</option>
+      <option value="catmark_bishop">catmark_bishop</option>
+      <option value="catmark_rook">catmark_rook</option>
+      <option value="catmark_pawn">catmark_pawn</option>
+      <option value="torus">torus</option>
       <option value="dino">dino</option>
       <option value="face">face</option>
     </select>
+    </div>
     <br>
-    <input id="hullCheckbox" type="checkbox" checked>Hull</input><br>
-    <input id="deformCheckbox" type="checkbox">Deform animation</input><br>
-    <input id="wireCheckbox" type="checkbox" checked>Wireframe</input><br>
-    <input id="uvCheckbox" type="checkbox">UV mapping</input><br>
-    <select id="levelSelect" size=6>
-      <option value="1">Level 1</option>
-      <option value="2">Level 2</option>
-      <option value="3" selected>Level 3</option>
-      <option value="4">Level 4</option>
-      <option value="5">Level 5</option>
-      <option value="6">Level 6</option>
-    </select>
+
+    Display style
+    <div id="radio">
+      <input type="radio" id="displayShade" name="radio" checked="checked"><label for="displayShade">Shade</label>
+      <input type="radio" id="displayWire" name="radio"><label for="displayWire">Wire</label>
+      <input type="radio" id="displayNormal" name="radio"><label for="displayNormal">Normal</label>
+      <input type="radio" id="displayPatch" name="radio"><label for="displayPatch">Patch</label>
+    </div>
+
+    <br>
+    <input id="hullCheckbox" type="checkbox" checked><label for="hullCheckbox">Hull</label><br>
+    <br>
     </div>
   </body>
 </html>

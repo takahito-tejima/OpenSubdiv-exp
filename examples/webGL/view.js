@@ -1,15 +1,15 @@
 var vTexture = null;
 var nTexture = null;
 var mTexture = null;
-var rx = 90;
+var rx = 0;
 var ry = 0;
 var dolly = 5;
+var center = [0, 0, 0];
 var fov = 60;
 var maxlevel = 1;
 var time = 0;
 var model = null;
 var deform = false;
-var drawWire = true;
 var drawHull = true;
 var uvMapping = false;
 var prevTime = 0;
@@ -18,19 +18,22 @@ var uvimage = new Image();
 var uvtex = null;
 var program = null;
 var interval = null;
-var uvInvalid = true;
-var geomInvalid = true;
 var framebuffer = null;
+
+var displayMode = 0;
+
+
+var tessFactor = 1;
 
 function windowEvent(){
     if (window.event) 
-	return window.event;
+        return window.event;
     var caller = arguments.callee.caller;
     while (caller) {
-	var ob = caller.arguments[0];
-	if (ob && ob.constructor == MouseEvent) 
-	    return ob;
-	caller = caller.caller;
+        var ob = caller.arguments[0];
+        if (ob && ob.constructor == MouseEvent)
+            return ob;
+        caller = caller.caller;
     }
     return null;
 }
@@ -55,19 +58,24 @@ function buildProgram(vertexShader, fragmentShader)
     var vshader = gl.createShader(gl.VERTEX_SHADER);
     gl.shaderSource(vshader, define+util+$(vertexShader).text());
     gl.compileShader(vshader);
-    if (!gl.getShaderParameter(vshader, gl.COMPILE_STATUS)) 
-		alert(gl.getShaderInfoLog(vshader));
+    if (!gl.getShaderParameter(vshader, gl.COMPILE_STATUS))
+        alert(gl.getShaderInfoLog(vshader));
     var fshader = gl.createShader(gl.FRAGMENT_SHADER);
     gl.shaderSource(fshader, define+$(fragmentShader).text());
     gl.compileShader(fshader);
-    if (!gl.getShaderParameter(fshader, gl.COMPILE_STATUS)) 
-		alert(gl.getShaderInfoLog(fshader));
+    if (!gl.getShaderParameter(fshader, gl.COMPILE_STATUS))
+        alert(gl.getShaderInfoLog(fshader));
     gl.attachShader(program, vshader);
     gl.attachShader(program, fshader);
-    gl.bindAttribLocation(program, 0, "vertexID");
+    //gl.bindAttribLocation(program, 0, "vertexID");
+
+    gl.bindAttribLocation(program, 0, "position");
+    gl.bindAttribLocation(program, 1, "inNormal");
+    gl.bindAttribLocation(program, 2, "inUV");
+
     gl.linkProgram(program)
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) 
-	alert(gl.getProgramInfoLog(program));
+        alert(gl.getProgramInfoLog(program));
     return program;
 }
 
@@ -151,6 +159,9 @@ function initialize(){
 
     buildMainProgram();
 
+    cageProgram = buildProgram("#cageVS", "#cageFS");
+    cageProgram.mvpMatrix = gl.getUniformLocation(cageProgram, "mvpMatrix");
+
 //    progFace = buildProgram('#faceKernel', '#kfshader');
 //    progEdge = buildProgram('#edgeKernel', '#kfshader');
 //    progVertexA = buildProgram('#vertexKernelA', '#kfshader');
@@ -167,9 +178,7 @@ function buildMainProgram()
     program.modelViewMatrix = gl.getUniformLocation(program, "modelViewMatrix");
     program.projMatrix = gl.getUniformLocation(program, "projMatrix");
 
-    gl.bindAttribLocation(program, 0, "inPos");
-    gl.bindAttribLocation(program, 1, "inNormal");
-    gl.bindAttribLocation(program, 2, "inUV");
+    program.displayMode = gl.getUniformLocation(program, "displayMode");
 }
 
 
@@ -191,92 +200,48 @@ function deleteModel(data) {
     gl.deleteTexture(data.texV_W);
 }
 
-function getLevelBuffer(header, data, i) {
-    var size = header[3+i*14];
-    var offset = header[3+i*14+1];
-    var resolution = header[3+i*14+2];
-    var lb = {};
-    lb.buffer = new Float32Array(data.slice(offset, offset+size));
-    lb.offset = [];
-    lb.resolution = resolution;
+function fit() {
+    if (model == null) return;
 
-    for(j = 0; j < 10; j++){
-	lb.offset.push(header[3+i*14+4+j]);
+    var n = model.cageVerts.length;
+    var min = [model.cageVerts[0], model.cageVerts[1], model.cageVerts[2]];
+    var max = [min[0], min[1], min[2]];
+    for (i = 0; i < n; i+= 3) {
+        var p = [model.cageVerts[i], model.cageVerts[i+1], model.cageVerts[i+2]];
+        for (var j = 0; j < 3; ++j) {
+            min[j] = (min[j] < p[j]) ? min[j] : p[j];
+            max[j] = (max[j] > p[j]) ? max[j] : p[j];
+        }
     }
-    return lb;
-}
+    var size = [max[0]-min[0], max[1]-min[1], max[2]-min[2]];
+    var diag = Math.sqrt(size[0]*size[0] + size[1]*size[1] + size[2]*size[2]);
 
-function getLevel(header, pos, data) {
-    var level = {}
-    level.firstOffset = header[pos+0];
-    level.numFaceVerts = header[pos+1];
-    level.numEdgeVerts = header[pos+2];
-    level.numVertexVerts = header[pos+3];
-    level.startVB = header[pos+4];
-    level.endVB = header[pos+5];
-    level.startVA1 = header[pos+6];
-    level.endVA1 = header[pos+7];
-    level.startVA2 = header[pos+8];
-    level.endVA2 = header[pos+9];
-    level.triangles = new Float32Array(data.slice(header[pos+11], header[pos+10] + header[pos+11]));
-    level.lines = new Float32Array(data.slice(header[pos+13], header[pos+12] + header[pos+13]));
-    return level;
+    dolly = diag*0.8;
+
+    center = [(max[0]+min[0])*0.5, (max[1]+min[1])*0.5, (max[2]+min[2])*0.5];
 }
 
 function setModel(data) {
 
-    console.log(data);
-/*
+
     if (data == null) return;
-    deleteModel(model);
+
+    //console.log(data);
+
+    // XXX: release buffers!
     model = {};
-    
-    header = new Uint32Array(data);
-    model.nLevels = header[2];
-    model.F_IT = getLevelBuffer(header, data, 0);
-    model.F_ITa = getLevelBuffer(header, data, 1);
-    model.E_IT = getLevelBuffer(header, data, 2);
-    model.V_IT = getLevelBuffer(header, data, 3);
-    model.V_ITa1 = getLevelBuffer(header, data, 4);
-    model.V_ITa2 = getLevelBuffer(header, data, 5);
-    model.E_W = getLevelBuffer(header, data, 6);
-    model.V_W = getLevelBuffer(header, data, 7);
-
-    var ofs = 3+14*8;
-    model.cageVerts   = new Float32Array(data.slice(header[ofs+1], header[ofs  ]+header[ofs+1]));
-    model.cageNormals = new Float32Array(data.slice(header[ofs+3], header[ofs+2]+header[ofs+3]));
-    model.cageIndices = new Float32Array(data.slice(header[ofs+5], header[ofs+4]+header[ofs+5]));
-    model.resolution = header[ofs+6];
-
-    model.levels = [];
-    for(i=0; i<model.nLevels; i++){
-	var level = getLevel(header, ofs+14+14*i, data);
-
-	var ibuffer = gl.createBuffer();
-	gl.bindBuffer(gl.ARRAY_BUFFER, ibuffer);
-	gl.bufferData(gl.ARRAY_BUFFER, level.lines, gl.STATIC_DRAW);
-	level.ibLines = ibuffer;
-	level.nLines = level.lines.length;
-
-	ibuffer = gl.createBuffer();
-	gl.bindBuffer(gl.ARRAY_BUFFER, ibuffer);
-	gl.bufferData(gl.ARRAY_BUFFER, level.triangles, gl.STATIC_DRAW);
-	level.ibTriangles = ibuffer;
-	level.nTriangles = level.triangles.length;
-    
-	model.levels.push(level);
-    }
-*/
-    model = {};
-
     model.patchVerts    = [];
 
     // control cage
+    model.animVerts   = new Float32Array(3*data.points.length)
     model.cageVerts   = new Float32Array(3*data.points.length)
     for (i = 0; i < data.points.length; i++) {
         model.cageVerts[i*3+0] = data.points[i][0];
         model.cageVerts[i*3+1] = data.points[i][1];
         model.cageVerts[i*3+2] = data.points[i][2];
+        model.animVerts[i*3+0] = data.points[i][0];
+        model.animVerts[i*3+1] = data.points[i][1];
+        model.animVerts[i*3+2] = data.points[i][2];
         model.patchVerts[i] = data.points[i];
     }
     model.cageLines   = new Int16Array(data.hull.length)
@@ -284,9 +249,9 @@ function setModel(data) {
         model.cageLines[i] = data.hull[i];
     }
 
-    var vbuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, vbuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, model.cageVerts, gl.STATIC_DRAW);
+    model.hullVerts = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, model.hullVerts);
+    gl.bufferData(gl.ARRAY_BUFFER, model.animVerts, gl.STATIC_DRAW);
     gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
     var ibuffer = gl.createBuffer();
@@ -294,24 +259,47 @@ function setModel(data) {
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, model.cageLines, gl.STATIC_DRAW);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
 
-    model.hullVerts = vbuffer;
     model.hullIndices = ibuffer;
 
     // patch vertices
     var nPoints = data.stencilIndices.length;
-//    model.nPoints = nPoints;
-
-    model.vbo = gl.createBuffer();
-    model.ibo = gl.createBuffer();
     model.stencilIndices = data.stencilIndices;
     model.stencilWeights = data.stencilWeights;
 
     // patch indices
     model.tessvbo = gl.createBuffer();
     model.patches = data.patches;
+    model.patchParams = data.patchParams;
 
+    fit();
+
+    updateGeom();
+}
+
+function updateGeom() {
     refine();
     tessellate();
+    redraw();
+}
+
+function animate() {
+    var r = Math.cos(time);
+    for (var i = 0; i < model.cageVerts.length; i += 3) {
+        var x = model.cageVerts[i+0];
+        var y = model.cageVerts[i+1];
+        var z = model.cageVerts[i+2];
+        model.animVerts[i+0] = x * Math.cos(r*y) + z * Math.sin(r*y);
+        model.animVerts[i+1] = y;
+        model.animVerts[i+2] = - x * Math.sin(r*y) + z * Math.cos(r*y);
+        model.patchVerts[i/3] = [model.animVerts[i+0],
+                               model.animVerts[i+1],
+                               model.animVerts[i+2]];
+    }
+    time = time + 0.1;
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, model.hullVerts);
+    gl.bufferData(gl.ARRAY_BUFFER, model.animVerts, gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, null);
 }
 
 function refine() {
@@ -324,9 +312,9 @@ function refine() {
         for (j = 0; j < size; j++) {
             var vindex = model.stencilIndices[i][j];
             var weight = model.stencilWeights[i][j];
-            x += model.cageVerts[vindex*3+0] * weight;
-            y += model.cageVerts[vindex*3+1] * weight;
-            z += model.cageVerts[vindex*3+2] * weight;
+            x += model.animVerts[vindex*3+0] * weight;
+            y += model.animVerts[vindex*3+1] * weight;
+            z += model.animVerts[vindex*3+2] * weight;
         }
         model.patchVerts[i + model.cageVerts.length/3] = [x,y,z];
     }
@@ -380,18 +368,55 @@ function evalBSpline(indices, u, v) {
     N = [QU[1]*QV[2]-QU[2]*QV[1],
          QU[2]*QV[0]-QU[0]*QV[2],
          QU[0]*QV[1]-QU[1]*QV[0]];
-    return [Q[0], Q[1], Q[2], N[0], N[1], N[2]];
+    return [Q[0], Q[1], Q[2], -N[0], -N[1], -N[2]];
+}
+
+function appendVBO(points, indices)
+{
+    var batch = {}
+
+    var pdata = new Float32Array(points.length);
+    for (i = 0; i < points.length; i++) {
+        pdata[i] = points[i];
+    }
+    batch.nPoints = pdata.length/3;
+    var idata = new Uint16Array(indices.length);
+    for (i = 0; i < indices.length; i++) {
+        idata[i] = indices[i];
+    }
+    batch.nTris = idata.length/3;
+
+    batch.vbo = gl.createBuffer();
+    batch.ibo = gl.createBuffer();
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, batch.vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, pdata, gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, null);
+
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, batch.ibo);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idata, gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+
+    model.batches.push(batch);
 }
 
 function tessellate() {
     if (model == null) return;
+
+    model.batches = []
 
     var points = [];
     var indices = [];
     var vid = 0;
     for (var i = 0; i < model.patches.length; i++) {
         if (model.patches[i].length != 16) continue;
-        var div = 2;
+
+        if (i >= model.patchParams.length) continue;
+        var p = model.patchParams[i];
+        if (p ==null) continue;
+        var level = 1 + tessFactor - p[0];
+        if (level < 0) level = 0;
+        var div = (1 << level) + 1;
         var vbegin = vid;
         for (iu = 0; iu < div; iu++) {
             for (iv = 0; iv < div; iv++) {
@@ -419,27 +444,17 @@ function tessellate() {
                 ++vid;
             }
         }
+        // if it reached to 64K vertices, move to next batch
+        if (vid > 60000) {
+            appendVBO(points, indices);
+            points = [];
+            indices = [];
+            vid = 0;
+        }
     }
 
-    var pdata = new Float32Array(points.length);
-    for (i = 0; i < points.length; i++) {
-        pdata[i] = points[i];
-    }
-    model.nPoints = pdata.length/3;
-    var idata = new Int16Array(indices.length);
-    for (i = 0; i < indices.length; i++) {
-        idata[i] = indices[i];
-    }
-    model.nTris = idata.length/3;
-
-    gl.bindBuffer(gl.ARRAY_BUFFER, model.vbo);
-    gl.bufferData(gl.ARRAY_BUFFER, pdata, gl.STATIC_DRAW);
-    gl.bindBuffer(gl.ARRAY_BUFFER, null);
-
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, model.ibo);
-    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idata, gl.STATIC_DRAW);
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
-
+    // residual
+    appendVBO(points, indices);
 }
 
 function syncbuffer()
@@ -466,49 +481,29 @@ function subdivide(targetTexture) {
     gl.bindBuffer(gl.ARRAY_BUFFER, vbuffer);
     gl.vertexAttribPointer(0, 1, gl.FLOAT, false, 0, 0);
 }
+
 function idle() {
 
-    if(model == null) return;
-    if(maxlevel > model.nLevels) {
-	maxlevel = model.nLevels;
-    }
-    if(deform) {
-	geomInvalid = true;
-    }
-    redraw();
+    if (model == null) return;
+    animate();
+    updateGeom();
 }
-
-var c = 0.1
-
 
 function redraw() {
 
-    if(model == null) return;
-/*
-    if (geomInvalid) {
-	updateGeom();
-	subdivide(vTexture);
-	subdivide(nTexture);
-	geomInvalid = false;
-    }
-*/
-    if (uvMapping && uvInvalid) {
-//	subdivide(mTexture);
-	uvInvalid = false;
-    }
+    if (model == null) return;
 
 //    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 
     
     //gl.clearColor(0, 0, 0, 0);
-    gl.clearColor(1, 1, 1, 1);
-    gl.clearDepth(1000);
+    gl.clearColor(.1, .1, .2, 1);
+    //gl.clearDepth(1000);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.enable(gl.DEPTH_TEST);
     gl.disable(gl.BLEND);
     gl.depthFunc(gl.LEQUAL);
 
-    gl.useProgram(program);
     
     var canvas = $('#main');
     var w = canvas.width();
@@ -518,45 +513,58 @@ function redraw() {
     
     var proj = mat4.create();
     mat4.identity(proj);
-    mat4.perspective(fov, aspect, 0.001, 1000.0, proj);
+    mat4.perspective(fov, aspect, 0.1, 1000.0, proj);
     
     var modelView = mat4.create();
     mat4.identity(modelView);
     mat4.translate(modelView, [0, 0, -dolly], modelView);
     mat4.rotate(modelView, ry*Math.PI*2/360, [1, 0, 0], modelView);
     mat4.rotate(modelView, rx*Math.PI*2/360, [0, 1, 0], modelView);
+    mat4.translate(modelView, [-center[0], -center[1], -center[2]], modelView);
     
     var mvpMatrix = mat4.create();
-    mat4.multiply(modelView, proj, mvpMatrix);
-    
-    gl.uniformMatrix4fv(program.modelViewMatrix, false, modelView);
-    gl.uniformMatrix4fv(program.projMatrix, false, proj);
-    gl.uniformMatrix4fv(program.mvpMatrix, false, mvpMatrix);
+    mat4.multiply(proj, modelView, mvpMatrix);
+
 
     if (drawHull) {
+        gl.useProgram(cageProgram);
+        gl.uniformMatrix4fv(cageProgram.mvpMatrix, false, mvpMatrix);
+
         gl.bindBuffer(gl.ARRAY_BUFFER, model.hullVerts);
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, model.hullIndices);
         gl.enableVertexAttribArray(0);
-        gl.disableVertexAttribArray(1);
-        gl.disableVertexAttribArray(2);
         gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
 
         gl.drawElements(gl.LINES, model.cageLines.length, gl.UNSIGNED_SHORT, 0);
     }
 
     // ---------------------------
-    gl.bindBuffer(gl.ARRAY_BUFFER, model.vbo);
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, model.ibo);
+    gl.useProgram(program);
+    gl.uniformMatrix4fv(program.modelViewMatrix, false, modelView);
+    gl.uniformMatrix4fv(program.projMatrix, false, proj);
+    gl.uniformMatrix4fv(program.mvpMatrix, false, mvpMatrix);
+    gl.uniform1i(program.displayMode, displayMode);
+
+    var drawTris = 0;
     gl.enableVertexAttribArray(0);
     gl.enableVertexAttribArray(1);
     gl.enableVertexAttribArray(2);
-    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 10*4, 0);   // XYZ
-    gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 10*4, 3*4); // normal
-    gl.vertexAttribPointer(2, 4, gl.FLOAT, false, 10*4, 6*4); // uv, iuiv
+    for (var i = 0; i < model.batches.length; ++i) {
+        var batch = model.batches[i];
+        gl.bindBuffer(gl.ARRAY_BUFFER, batch.vbo);
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, batch.ibo);
+        gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 10*4, 0);   // XYZ
+        gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 10*4, 3*4); // normal
+        gl.vertexAttribPointer(2, 4, gl.FLOAT, false, 10*4, 6*4); // uv, iuiv
 
-    //gl.drawArrays(gl.POINTS, 0, model.nPoints);
-    gl.drawElements(gl.TRIANGLES, model.nTris*3, gl.UNSIGNED_SHORT, 0);
+        gl.drawElements(gl.TRIANGLES, batch.nTris*3, gl.UNSIGNED_SHORT, 0);
 
+        drawTris += batch.nTris;
+    }
+
+    gl.disableVertexAttribArray(0);
+    gl.disableVertexAttribArray(1);
+    gl.disableVertexAttribArray(2);
 /*
 
     if (drawWire) {
@@ -578,12 +586,14 @@ function redraw() {
 */
 	
     gl.finish();
-    
-    drawTime = Date.now() - prevTime;
-    prevTime = Date.now();
-    fps = (29 * fps + 1000.0/drawTime)/30.0;
+
+    var time = Date.now();
+    drawTime = time - prevTime;
+    prevTime = time;
+    //fps = (29 * fps + 1000.0/drawTime)/30.0;
+    fps = 1000.0/drawTime;
     $('#fps').text(Math.round(fps));
-    $('#triangles').text(model.nTris);
+    $('#triangles').text(drawTris);
 }
 
 function loadModel(url)
@@ -617,6 +627,8 @@ $(function(){
     $.each(["webgl", "experimental-webgl", "webkit-3d", "moz-webgl"], function(i, name){
 	try {
 	    gl = canvas.getContext(name);
+            gl.getExtension('OES_standard_derivatives');
+
 	} 
 	catch (e) {
 	}
@@ -653,6 +665,7 @@ $(function(){
 		if(fov > 170) fov = 170;
                 */
                 dolly -= d[0];
+                if (dolly <= 0.001) dolly = 0.001;
 	    }
 	    redraw();
 	}
@@ -685,48 +698,58 @@ $(function(){
 	redraw();
     }
 
-    var levelSelect = $("#levelSelect").get(0);
-    levelSelect.onclick = function(e){
-	maxlevel = levelSelect.value;
-	geomInvalid = true;
-	uvInvalid = true;
-	redraw();
-    }
+    $( "#tessFactorRadio" ).buttonset();
+    $( 'input[name="tessFactorRadio"]:radio' ).change(
+        function() {
+            if (this.id == "tf1") {
+                tessFactor = 1;
+            } else if (this.id == "tf2") {
+                tessFactor = 2;
+            } else if (this.id == "tf3") {
+                tessFactor = 3;
+            } else if (this.id == "tf4") {
+                tessFactor = 4;
+            } else if (this.id == "tf5") {
+                tessFactor = 5;
+            } else if (this.id == "tf6") {
+                tessFactor = 6;
+            }
+            updateGeom();
+        });
 
-    var hullCheckbox = $("#hullCheckbox").get(0);
-    hullCheckbox.onchange = function(e){
-	drawHull = !drawHull;
-	redraw();
-    }
+    $( "#radio" ).buttonset();
+    $( 'input[name="radio"]:radio' ).change(
+        function() {
+            if (this.id == "displayShade") {
+                displayMode = 0;
+            } else if (this.id == "displayWire") {
+                displayMode = 1;
+            } else if (this.id == "displayNormal") {
+                displayMode = 2;
+            } else if (this.id == "displayPatch") {
+                displayMode = 3;
+            }
+            redraw();
+        });
 
-    var wireCheckbox = $("#wireCheckbox").get(0);
-    wireCheckbox.onchange = function(e){
-	drawWire = !drawWire;
-	redraw();
-    }
+    $( "#hullCheckbox" ).button().change(
+        function(event, ui){
+            drawHull = !drawHull;
+            redraw();
+        });
 
-    var deformCheckbox = $("#deformCheckbox").get(0);
-    deformCheckbox.onchange = function(e){
-	deform = !deform;
-	if (deform) {
-	    interval = setInterval(idle, 16);
-	} else {
-	    clearInterval(interval);
-	    interval = null;
-	}
-	geomInvalid = true;
-	redraw();
-    }
-
-    var uvCheckbox = $("#uvCheckbox").get(0);
-    uvCheckbox.onchange = function(e){
-	uvMapping = !uvMapping;
-	if (uvMapping && uvtex == null) {
-	    uvimage.src = "brick.jpeg";
-	}
-	buildMainProgram();
-	redraw();
-    }
+    $( "#deformCheckbox" ).button().change(
+        function(event, ui){
+            deform = !deform;
+            if (deform) {
+                interval = setInterval(idle, 16);
+            } else {
+                clearInterval(interval);
+                interval = null;
+                time = 0;
+            }
+            redraw();
+        });
 
     uvimage.onload = function() {
 	uvtex = gl.createTexture();
@@ -740,6 +763,7 @@ $(function(){
 
 	redraw();
     }
+
 
 		
     loadModel("cube.json");
