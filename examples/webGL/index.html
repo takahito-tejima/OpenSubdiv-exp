@@ -1,0 +1,98 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN"
+"http://www.w3.org/TR/html4/loose.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>OpenSubdiv 3.0 WebGL viewer</title>
+    <script src="./jquery-latest.js" type="text/javascript"></script>
+    <script src="./glMatrix-0.9.5.min.js" type="text/javascript"></script>
+    <script src="./view.js" type="text/javascript" ></script>
+
+    <script id="shaderutil" type="x-shader/x-vertex">
+    </script>
+    <script id="vshader" type="x-shader/x-vertex">
+      precision highp float;
+      
+      uniform mat4 mvpMatrix;
+      uniform mat4 modelViewMatrix;
+      uniform mat4 projMatrix;
+
+      attribute vec3 position;
+      attribute vec3 inNormal;
+      attribute vec4 inUV;
+      varying vec3 normal;
+      varying vec4 uv;
+
+      void main(){
+        vec3 p = (modelViewMatrix * vec4(position.xyz, 1)).xyz;
+      //n = (modelViewMatrix * vec4(inNormal.xyz, 0)).xyz;
+        normal = normalize(inNormal.xyz);
+        uv = inUV;
+        gl_Position = projMatrix * vec4(p, 1);
+      }
+    </script>
+    <script id="fshader" type="x-shader/x-fragment">
+      precision highp float;
+      varying vec3 normal;
+      varying vec4 uv;
+
+      void main()
+      {
+         float d = dot(normal, vec3(0, 0, 1));
+
+         //vec4 c = vec4(d,d,d,1);
+         vec4 c = vec4(normal, 1);
+         //vec4 c = vec4(uv.x, uv.y, 1, 1);
+
+         vec2 vRel = fract(uv.zw);
+         float edge = max(1.0-vRel.x, max(1.0-vRel.y, max(vRel.x, vRel.y)));
+         edge = edge*edge;
+         edge = edge*edge;
+         edge = edge*edge;
+         edge = edge*edge;
+         edge = edge*edge;
+         edge = edge*edge;
+
+         gl_FragColor = mix(c, vec4(0,0,0,1), edge);
+
+      }
+    </script>
+
+    <style type="text/css">
+      canvas#main
+      {
+      cursor: default;
+      }
+      div#control
+      {
+      position:absolute;
+      left : 850px;
+      }
+    </style>
+  </head>	
+  <body >
+    <canvas id="main" width="800" height="600" style="position:absolute;z-index:2;background-color:black"></canvas>
+    <div id="control">
+    <span id="fps"></span> fps<br>
+    <span id="triangles"></span> triangles<br>
+    <select id="modelSelect" size=20>
+      <option value="cube" selected>cube</option>
+      <option value="dino">dino</option>
+      <option value="face">face</option>
+    </select>
+    <br>
+    <input id="hullCheckbox" type="checkbox" checked>Hull</input><br>
+    <input id="deformCheckbox" type="checkbox">Deform animation</input><br>
+    <input id="wireCheckbox" type="checkbox" checked>Wireframe</input><br>
+    <input id="uvCheckbox" type="checkbox">UV mapping</input><br>
+    <select id="levelSelect" size=6>
+      <option value="1">Level 1</option>
+      <option value="2">Level 2</option>
+      <option value="3" selected>Level 3</option>
+      <option value="4">Level 4</option>
+      <option value="5">Level 5</option>
+      <option value="6">Level 6</option>
+    </select>
+    </div>
+  </body>
+</html>
