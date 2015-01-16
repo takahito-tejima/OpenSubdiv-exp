@@ -30,6 +30,8 @@
 namespace OpenSubdiv {
 namespace OPENSUBDIV_VERSION {
 
+namespace Osd {
+
 inline void
 cross(float *n, const float *p0, const float *p1, const float *p2) {
 
@@ -45,10 +47,10 @@ cross(float *n, const float *p0, const float *p1, const float *p2) {
     n[2] *= rn;
 }
 
-void OsdCpuSmoothNormalController::_smootheNormals(
-    OsdCpuSmoothNormalContext * context) {
+void CpuSmoothNormalController::_smootheNormals(
+    CpuSmoothNormalContext * context) {
 
-    OsdVertexBufferDescriptor const & iDesc = context->GetInputVertexDescriptor(),
+    VertexBufferDescriptor const & iDesc = context->GetInputVertexDescriptor(),
                                     & oDesc = context->GetOutputVertexDescriptor();
 
     assert(iDesc.length==3 and oDesc.length==3);
@@ -56,68 +58,55 @@ void OsdCpuSmoothNormalController::_smootheNormals(
     float const * iBuffer = context->GetCurrentInputVertexBuffer() + iDesc.offset;
     float * oBuffer = context->GetCurrentOutputVertexBuffer() + oDesc.offset;
 
-    std::vector<unsigned int> const & verts = context->GetControlVertices();
+    int nfaces = context->GetNumFaces(),
+        nverts = context->GetNumVertices();
 
-    FarPatchTables::PatchArrayVector const & parrays = context->GetPatchArrayVector();
-
-    if (verts.empty() or parrays.empty() or (not iBuffer) or (not oBuffer)) {
-        return;
-    }
-
-    for (int i=0; i<(int)parrays.size(); ++i) {
-
-        FarPatchTables::PatchArray const & pa = parrays[i];
-
-        FarPatchTables::Type type = pa.GetDescriptor().GetType();
-
-
-        if (type==FarPatchTables::QUADS or type==FarPatchTables::TRIANGLES) {
-
-            int nv = FarPatchTables::Descriptor::GetNumControlVertices(type);
-
-            // if necessary, reset all normal values to 0
-            if (context->GetResetMemory()) {
-                float * ptr = oBuffer;
-                for (int j=0; j<context->GetNumVertices(); ++j, ptr += oDesc.stride) {
-                    memset(ptr, 0, oDesc.length*sizeof(float));
-                }
-            }
-
-            for (int j=0, idx=pa.GetVertIndex(); j<(int)pa.GetNumPatches(); ++j, idx+=nv) {
-
-
-                float const * p0 = iBuffer + verts[idx+0]*iDesc.stride,
-                            * p1 = iBuffer + verts[idx+1]*iDesc.stride,
-                            * p2 = iBuffer + verts[idx+2]*iDesc.stride;
-
-                // compute face normal
-                float n[3];
-                cross( n, p0, p1, p2 );
-
-                // add normal to all vertices of the face
-                for (int k=0; k<nv; ++k) {
-
-                    float * dst = oBuffer + verts[idx+k]*oDesc.stride;
-
-                    dst[0] += n[0];
-                    dst[1] += n[1];
-                    dst[2] += n[2];
-                }
+    // if necessary, reset all normal values to 0
+    if (context->GetResetMemory()) {
+        if (oDesc.length == oDesc.stride) {
+            memset(oBuffer, 0, nverts*oDesc.length*sizeof(float));
+        } else {
+            float * ptr = oBuffer;
+            for (int j=0; j<nverts; ++j, ptr += oDesc.stride) {
+                memset(ptr, 0, oDesc.length*sizeof(float));
             }
         }
     }
 
+    Far::Index const * fverts = context->GetFaceVertices();
+    for (int face=0; face<nfaces; ++face, fverts+=4) {
+
+        float const * p0 = iBuffer + fverts[0]*iDesc.stride,
+                    * p1 = iBuffer + fverts[1]*iDesc.stride,
+                    * p2 = iBuffer + fverts[2]*iDesc.stride;
+
+        // compute face normal
+        float n[3];
+        cross( n, p0, p1, p2 );
+
+        // add normal to all vertices of the face
+        for (int i=0; i<4; ++i) {
+
+            float * dst = oBuffer + fverts[i]*oDesc.stride;
+
+            dst[0] += n[0];
+            dst[1] += n[1];
+            dst[2] += n[2];
+        }
+    }
 }
 
-OsdCpuSmoothNormalController::OsdCpuSmoothNormalController() {
+CpuSmoothNormalController::CpuSmoothNormalController() {
 }
 
-OsdCpuSmoothNormalController::~OsdCpuSmoothNormalController() {
+CpuSmoothNormalController::~CpuSmoothNormalController() {
 }
 
 void
-OsdCpuSmoothNormalController::Synchronize() {
+CpuSmoothNormalController::Synchronize() {
 }
+
+}  // end namespace Osd
 
 }  // end namespace OPENSUBDIV_VERSION
 }  // end namespace OpenSubdiv

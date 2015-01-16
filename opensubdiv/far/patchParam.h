@@ -27,10 +27,14 @@
 
 #include "../version.h"
 
+#include "../far/types.h"
+
 #include <cassert>
 
 namespace OpenSubdiv {
 namespace OPENSUBDIV_VERSION {
+
+namespace Far {
 
 /// \brief Local patch parameterization descriptor
 ///
@@ -41,25 +45,25 @@ namespace OPENSUBDIV_VERSION {
 /// but has to be remapped to a specific layout for uv textures.
 ///
 /// Bitfield layout :
-/// 
-///  Field      | Bits | Content                                              
+///
+///  Field      | Bits | Content
 ///  -----------|:----:|------------------------------------------------------
-///  level      | 4    | the subdivision level of the patch                   
-///  nonquad    | 1    | whether the patch is the child of a non-quad face    
-///  rotation   | 2    | patch rotations necessary to match CCW face-winding  
-///  v          | 10   | log2 value of u parameter at first patch corner      
-///  u          | 10   | log2 value of v parameter at first patch corner      
-///  reserved1  | 5    | padding                                              
-/// 
+///  level      | 4    | the subdivision level of the patch
+///  nonquad    | 1    | whether the patch is the child of a non-quad face
+///  rotation   | 2    | patch rotations necessary to match CCW face-winding
+///  v          | 10   | log2 value of u parameter at first patch corner
+///  u          | 10   | log2 value of v parameter at first patch corner
+///  reserved1  | 5    | padding
+///
 /// Note : the bitfield is not expanded in the struct due to differences in how
 ///        GPU & CPU compilers pack bit-fields and endian-ness.
 ///
-struct FarPatchParam {
-    unsigned int faceIndex:32; // Ptex face index
-    
+struct PatchParam {
+    Index faceIndex:32; // Ptex face index
+
     struct BitField {
         unsigned int field:32;
-        
+
         /// \brief Sets the values of the bit fields
         ///
         /// @param u value of the u parameter for the first corner of the face
@@ -69,13 +73,7 @@ struct FarPatchParam {
         /// @param depth subdivision level of the patch
         /// @param nonquad true if the root face is not a quad
         ///
-        void Set( short u, short v, unsigned char rots, unsigned char depth, bool nonquad ) {
-            field = (u << 17) |
-                    (v << 7) |
-                    (rots << 5) |
-                    ((nonquad ? 1:0) << 4) |
-                    (nonquad ? depth+1 : depth);
-        }
+        void Set( short u, short v, unsigned char rots, unsigned char depth, bool nonquad );
 
         /// \brief Returns the log2 value of the u parameter at the top left corner of
         /// the patch
@@ -90,34 +88,32 @@ struct FarPatchParam {
 
         /// \brief True if the parent coarse face is a non-quad
         bool NonQuadRoot() const { return (field >> 4) & 0x1; }
-        
-        /// \brief Returns the fratcion of normalized parametric space covered by the 
+
+        /// \brief Returns the fratcion of normalized parametric space covered by the
         /// sub-patch.
         float GetParamFraction() const;
 
-        /// \brief Returns the level of subdivision of the patch 
+        /// \brief Returns the level of subdivision of the patch
         unsigned char GetDepth() const { return  (unsigned char)(field & 0xf); }
 
-        /// The (u,v) pair is normalized to this sub-parametric space. 
+        /// The (u,v) pair is normalized to this sub-parametric space.
         ///
         /// @param u  u parameter
-        ///
         /// @param v  v parameter
         ///
         void Normalize( float & u, float & v ) const;
-        
+
         /// \brief Rotate (u,v) pair to compensate for transition pattern and boundary
         /// orientations.
         ///
         /// @param u  u parameter
-        ///
         /// @param v  v parameter
         ///
         void Rotate( float & u, float & v ) const;
 
         /// \brief Resets the values to 0
         void Clear() { field = 0; }
-                
+
     } bitField;
 
     /// \brief Sets the values of the bit fields
@@ -131,20 +127,29 @@ struct FarPatchParam {
     /// @param depth subdivision level of the patch
     /// @param nonquad true if the root face is not a quad
     ///
-    void Set( unsigned int faceid, short u, short v, unsigned char rots, unsigned char depth, bool nonquad ) {
-        faceIndex = faceid;
-        bitField.Set(u,v,rots,depth,nonquad);
-    }
-    
+    void Set( Index faceid, short u, short v, unsigned char rots, unsigned char depth, bool nonquad );
+
     /// \brief Resets everything to 0
-    void Clear() { 
-        faceIndex = 0;
-        bitField.Clear();
-    }
+    void Clear();
 };
 
-inline float 
-FarPatchParam::BitField::GetParamFraction( ) const {
+typedef std::vector<PatchParam> PatchParamTable;
+
+typedef Vtr::Array<PatchParam> PatchParamArray;
+typedef Vtr::ConstArray<PatchParam> ConstPatchParamArray;
+
+inline void
+PatchParam::BitField::Set( short u, short v, unsigned char rots, unsigned char depth, bool nonquad ) {
+    field = (u << 17) |
+            (v << 7) |
+            (rots << 5) |
+            ((nonquad ? 1:0) << 4) |
+            (nonquad ? depth+1 : depth);
+}
+
+
+inline float
+PatchParam::BitField::GetParamFraction( ) const {
     if (NonQuadRoot()) {
         return 1.0f / float( 1 << (GetDepth()-1) );
     } else {
@@ -153,7 +158,7 @@ FarPatchParam::BitField::GetParamFraction( ) const {
 }
 
 inline void
-FarPatchParam::BitField::Normalize( float & u, float & v ) const {
+PatchParam::BitField::Normalize( float & u, float & v ) const {
 
     float frac = GetParamFraction();
 
@@ -166,8 +171,8 @@ FarPatchParam::BitField::Normalize( float & u, float & v ) const {
     v = (v - pv) / frac;
 }
 
-inline void 
-FarPatchParam::BitField::Rotate( float & u, float & v ) const {
+inline void
+PatchParam::BitField::Rotate( float & u, float & v ) const {
     switch( GetRotation() ) {
          case 0 : break;
          case 1 : { float tmp=v; v=1.0f-u; u=tmp; } break;
@@ -177,6 +182,20 @@ FarPatchParam::BitField::Rotate( float & u, float & v ) const {
              assert(0);
     }
 }
+
+inline void
+PatchParam::Set( Index faceid, short u, short v, unsigned char rots, unsigned char depth, bool nonquad ) {
+    faceIndex = faceid;
+    bitField.Set(u,v,rots,depth,nonquad);
+}
+
+inline void
+PatchParam::Clear() {
+    faceIndex = 0;
+    bitField.Clear();
+}
+
+} // end namespace Far
 
 } // end namespace OPENSUBDIV_VERSION
 using namespace OPENSUBDIV_VERSION;

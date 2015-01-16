@@ -22,8 +22,8 @@
      language governing permissions and limitations under the Apache License.
 
 
-Release Notes
--------------
+3.0.0.Beta Release Notes
+------------------------
 
 .. contents::
    :local:
@@ -31,525 +31,339 @@ Release Notes
 
 ----
 
-Release 2.5.1
-=============
+Release 3.0
+===========
 
-**New Features**
-    - Add CATMARK_QUAD_FACE_VERTEX and CATMARK_TRI_QUAD_FACE_VERTEX compute kernels
-      optimization that takes advantage of all-quads or all-triange-and-quads meshes
-
-**Bug Fixes**
-    - Fixed a compiler error in the GLSL Transform Feedback kernels on OS X
-    - Fixed boundary interpolation in osdutil
-    - Fix bilinear stencil tangent computions
-
-Release 2.5.0
-=============
-
-**New Features**
-    - Add ability to generate triangle patches for a uniformly subdivided mesh
-    - Add new example 'topologySharing'
-    - Add interleaved buffer mode in glViewer
-    - Add GLSL compute kernel to glBatchViewer
-    - Add TBB compute kernel to glBatchViewer
-    - Add a PullDown widget to our HUD in examples/common
-        - GUI updates & cosmetic changes to GL example code
-    - Adding a programmable image shader to gl_hud
-        - Code cleanup for GLFrameBuffer in examples/common
-    - Implement C-API accessor to evaluator topology (osdutil)
-    - Add command line option to CMake's options
-    - Add a CMake option to disable OpenCL
-    - Add a FindCLEW.cmake module in anticipation of using CLEW as a dependency
-        - Integrate CLEW into osd library and examples
-
-**Changes**
-    - Change interleaved buffer support in OsdCompute: 
-        - Removed OsdVertexDescriptor and replaced with OsdVertexBufferDescriptor
-        - Reorganize ComputeContext and ComputeController.
-        - Reorganize EvalStencilContext and EvalStencilController 
-
-          Moved transient states (current vertex buffer etc) to controller
-        - Reorganize EvalLimitContext and EvalLimitController
-        
-          Moved transient states (current vertex buffer etc) to controller
-    - Fix adaptive isolation of sharp corner vertices
-    - Fix incorrect FarMeshFactory logic for isolating multiple corner vertices in corner patches
-    - Change EvalLimit Gregory patch kernels to the large weights table to accomodate higher valences
-    - Fix calculation of screen space LOD tess factors for transition corner patches.
-    - Add a public constructor to OsdMesh
-    - Decrease compiler warning thresholds and fix outstanding warnings
-    - Make PTex support optional
-    - Add a NO_MAYA flag to CMakeLists to disable all Autodesk Maya dependencies in the build
-        - Document NO_MAYA command line option
-
-**Bug Fixes**
-    - Fix mistakenly deleted memory barrier in glsl OsdCompute kernel.
-    - Fix shape_utils genRIB function to use streams correctly.
-    - Temporary workaround for the synchronization bug of glsl compute kernel
-    - Fix Hud display for higher DPI (MBP retina)
-        - Fix Hud (d3d11)
-    - Fix examples to use GL timer query to measure the GPU draw timing more precisely
-    - Fix glViewer: stop updating during freeze.
-    - Fix file permissions on farPatchTablesFactory.h
-    - Fix some meory leaks in adaptive evaluator (osdutil)
-    - Fix OsdUtilAdaptiveEvaluator concurrency issue
-    - Fix OsdUtilRefiner incorrect "Invalid size of patch array" error reporting.
-    - Fix OsdUtilPatchPartitioner failure for triangle patches
-    - Fixes a bug that causes OsdUtilPatchPartitioner to fail to rebuild the face-varying
-      data table correctly for triangle patches.
-    - Add missing third parameter to templated OsdDrawContext usage (osdutil/batch.h)
-    - Return success status from openSubdiv_finishEvaluatorDescr() (osdutil)
-    - Remove debugging std::cout calls (osdutil)
-    - Build errors & warnings:
-        - Fix OSX Core Profile build (GLFrameBuffer)
-        - Fix ptexViewer build error on OSX
-        - Fix framebuffer shader compiling for OSX
-        - Reordering includes to address a compile error on OSX/glew environment
-        - Fix compilation errors with CLEW enabled
-        - Fix icc build problems
-        - Fix compiler warnings in OsdClVertexBuffer
-        - Fix compilation error on windows+msvc2013 
-        - Fix build warnings/errors with VS2010 Pro
-        - Fix Windows build warning in FarPatchTablesFactory
-        - Fix doxygen generation errors
-
-
-Release 2.4.1
-=============
-
-**Changes**
-    - Add correct OpenSubdiv namespace begin/end blocks.
-
-**Bug Fixes**
-    - Compile osdutil with -fPIC for correct linking.
-    - Fix a bug of OsdUtilMeshBatch, the varying buffer isn't computed with CL kernels
-    - Fix FindGLFW.cmake to use the %GLFW_LOCATION% environment variable in Windows
-    - Fix Draw contexts do not fully initialize patch arrays
-
-Release 2.4.0
-=============
-
-**New Features**
-    - Adding functionality to store uniform face-varying data across multiple levels of subdivision
-    - Add OsdUtilPatchPartitioner
-        It splits patcharray into subsets so that clients can draw partial surfaces
-        for both adaptive and uniform.
-
-**Changes**
-    - Remove FarMesh dependency from Osd*Context.
-    - Use DSA APIs for GL buffer update (if available).
-    - Refactor Far API
-        - replace void- of all kernel applications with CONTEXT template parameter.
-          It eliminates many static_casts from void- for both far and osd classes.
-        - move the big switch-cases of far default kernel launches out of Refine so
-          that osd controllers can arbitrary mix default kernels and custom kernels.
-        - change FarKernelBatch::kernelType from enum to int, clients can add
-          custom kernel types.
-        - remove a back-pointer to farmesh from subdivision table.
-        - untemplate all subdivision table classes and template their compute methods
-          instead. Those methods take a typed vertex storage.
-        - remove an unused argument FarMesh from the constructor of subdivision
-          table factories.
-    - Refactor FarSubdivisionTables.
-        Delete scheme specialized subdivision tables. The base class FarSubdivisionTables
-        already has all tables, so we just need scheme enum to identify which scheme
-        the subdivision tables belong to. This brings a lot of code cleanups around far
-        factory classes.
-    - Move FarMultiMeshFactory to OsdUtil.
-    - Move table splicing functions of FarMultiMeshFactory into factories
-    - Change PxOsdUtil prefix to final OsdUtil prefix.
-    - Improve error reporting in osdutil refinement classes, and fix a build issue
-
-**Bug Fixes**
-    - Fix another multi mesh splicing bug of face varying data.
-    - Make CMake path variables more robust
-    - Fixing a crash on Marvericks w/glew
-    - Update dxViewer example documentation
-    - Fix wrong logic in openSubdiv_setEvaluatorCoarsePositions
-    - Remove debug print from adaptive evaluator's initialization
-
-Release 2.3.5
-=============
-
-**New Features**
-    - Add the ability to read obj files to the dxViewer example
-    - Add screen-capture function to ptexViewer
-    - Update documention for Xcode builds
-    - Add documentation (boundary interpolation rules and face-varying boundary interpolation rules)
-
-**Changes**
-    - Refactoring FarPatchTables and FarPatchTablesFactory
-    - Move GL vertex buffer VBO buffer allocation out of allocate() and into BindVBO()
-    - Enable uvViewer on OS X now that Mavericks is released.
-    - Replacing un-necessary dynamic_cast with reinterpret_cast within FarDispatcher
-    - Minor code cleanup of FarMeshFactory
-    - Remove address space qualifiers from OpenCL kernel functions
-    - Fix OpenCL initialization to be slightly more robust
-    - Add OpenCL header include paths where necessary
-    - Add 'static' specifiers for non-kernel CL funcs at program scope
-    - Add stddef.h to python/osd/osdshim.i
-    - Modify ptexViewer and uvViewer shaders to address some portability issues
-
-**Bug Fixes**
-    - Fix Gregory Boundary patch buffer overrun
-    - Fix black texels when the resolution of a ptex face is less than 4
-    - Fix a splicing bug in FarMultiMeshFactory
-    - Fix a build error when using older versions of GLFW
-    - Fix build warnings (optimized)
-    - Fix FindTBB.cmake
-    - Fix FindMaya.cmake
-    - Fix glViewer support for GLSL compute
-    - Fix ptexViewer: enable specular pass in both IBL and point lighting
-    - Fix Zlib include in ptexViewer
-    - Fix ptexViewer shader errors.
-    - Fix osdPolySmooth Maya plugin
-    - Fix UV merging in osdPolySmooth code example
-    - Add cleanup function to osdPolySmooth Maya plugin
-    - Fix Maya OsdPolySmooth node component output
-    - Fix GLSL array instantiation syntax for glStencilViewer
-    - Fix examples to run correctly on high DPI displays with GLFW 3
-
-Release 2.3.4
-=============
-
-**New Features**
-    - Adding CPU/OMP/TBB Context / Controller pairs for CPU evaluation of smooth normals
-    - Added adaptiveEvaluator class inspired by Sergey's work in blender (OsdUtil)
-
-**Changes**
-    - Changed the HUD to ignore mouse clicks when not visible.
-    - Updates for blender development (OsdUtil)
-    - Add C compatible API to access the adaptiveEvaluator class from non-C++ (OsdUtil)
-    - Update license headers to apache (OsdUtil)
-    - CMake build improvement : make osd a cmake object library & remove compiling redundancies
-    - Improve stringification of shaders & kernels in CMake build
-
-**Bug Fixes**
-    - Fixed iOS build
-    - Fixed VS2010 warnings/errors.
-    - Fix OsdCpuEvalLimitKernel
-    - Fix maxvalence calculation in FarMeshFactory
-    - Fix FarStencilFactory control stencil caching
-    - Removing assert for high-valence vertices running off limit tangent pre-computed table.
-    - Fix degenerate stencil limit tangent code path.
-    - Fix unused variable build warnings (gcc 4.8.2 - Fedora 19)
-    - Fix build warning from osdutil/adaptiveEvaluator.cpp
-
-Release 2.3.3
-=============
-
-**Changes**
-    - Modify Far remapping of singular vertices to point to their source vertex.
-    - Refactoring Ptex Mipmap and Analytic Displacement code
-    - Adding some documentation for Chaikin crease rule
-    - Misc. improvements to PxOsdUtilsMesh
-    - Adding recommended isolation output to OsdPolySmooth node
-
-**Bug Fixes**
-    - Adding an error check on version parsing of main CMakeLists
-    - Fix regex in FindMaya.cmake that breaks with recent versions of Maya
-    - Fix crashes induced by typeid
-    - Fixed VS2010 build warning
-    - Fix build break in hbr_regression
-    - Fix incorrect capitalization in GL ptexViewer shader.glsl
-    - Fix OSX build: add stdlib.h include
-
-Release 2.3.2
-=============
-
-**New Features**
-    - Adding control cage drawing to ptexViewer
-    - Adding Maya osdPolySmooth plugin into OpenSubdiv examples.
-
-**Changes**
-    - Removing some glGetError checks that are causing problems for Autodesk
-    - D3D11DrawRegistry returns the common shader config for all non-tess patcharrays.
-    - Updates to simple cpu osdutil classes
-
-**Bug Fixes**
-    - Fix Hbr Chaikin crease rule
-    - Fix Chaikin tag parsing
-    - Fix return value of allocate function for OsdCPUGLVertxBuffer
-    - Fixed GLSL shader portability.
-    - Fix FindGLFW.cmake for GLFW 3.03 on OSX
-    - Fixed compiler warnings.
-    - Fixed VS2010 build errors
-    - Fixed WIN32 build error when no DXSDK installed.
-    - Fix OSX build: stdlib.h needs to be included in glPtexMipmapTexture.h
-    - Fix for crash in new mesh/refiner code in OsdUtil
-
-
-Release 2.3.1
-=============
-
-**New Features**
-    - Add DX11 version of ptex mipmap loader
-    - Add DX11 ptex viewer (work in progress)
-    - Add DX11 fractional partitioning, normal derivatives computation
-    - Add memory usage controls to Ptex loader
-    - Add face-varying boundary interpolation parsing to shape_utils
-    - Add simple HbrMesh and FarMesh wrapper classes to osdutil
-
-**Changes**
-    - Amend language of attribution file 'NOTICE.txt'
-    - Optimize a bit of ptex mipmap lookup.
-    - Show ptex memory usage in GL and DX11 ptexViewers
-    - Improve ptex guttering
-    - Addding some video links to our collection of external resources
-
-**Bug Fixes**
-    - Fix edge-only face-varying interpolation
-    - Fix Far to handle disconnected vertices in an Hbr mesh
-    - Fixed ptex cache resource release sequence
-    - Fix build symbol conflict in Far
-    - Fix patch parambuffer generation in OsdD3D11DrawContext
-    - Fix a minor osdutil build warning (seen with gcc 4.8.1)
-    - Fix VS2010 build errors
-
-Release 2.3.0
-=============
-
-**New Features**
-    - Added Analytical displacement mapping ('Analytic Displacement Mapping using
-      Hardware Tessellation; Niessner and Loop [TOG 2013])
-    - Added a new ptex mipmap loader
-    - Added face varying macros for loop subdivision
-    - Added the uvViewer example to see how face varying interpolation rule works
-    - Added a slider component and cleanup hud code.
-
-**Changes**
-    - Adding license & attribution files, improved language of the code headers
-    - Install documentation into the Filesystem Hierarchy Standard location
-    - Set GLFW_OPENGL_FORWARD_COMPAT on Mac OS to make samples work on that platform
-    - Added surface normal mode & mipmap to ptxViewer
-
-**Bug Fixes**
-    - Fix a bug of bad fvar splicing for loop surface.
-    - Fix incorrect bilinear limit tangents in FarStencilTablesFactory
-    - Fix boundary interpolation rules doc
-    - Added an error check on updating cuda buffer
-    - Fix face varying rendering on loop surface
-    - Fixed glBatchViewer build for GLFW 2.x
-    - Expand search paths for FindGLFW.cmake for Debian and other Linux architectures
-    - Fix CMake executable builds for ICC
-    - Fix bhr baseline regression, so reference files are real OBJ's
-    - Fixed clKernelBundle.cpp to build on Android.
-    - Fix misc build warings
-
-Release 2.2.0
-=============
-
-**New Features**
-    - Added subdivision stencil functionality (Far & OsdEval)
-
-**Bug Fixes**
-    - Fix D3D11DrawContext to check for NULL pointers
-    - Fix cpuEvalLimitController crash bug
-    - Fixed search path suffixes for ICC libs
-    - Fixed invalid initialization of glslTransformFeedback kernel.
-
-Release 2.1.0
-=============
-
-**New Features**
-    - Added TBB Compute back-end on Linux (contribution from Sheng Fu)
-    - Added support for ICC compiler (still Beta)
-
-**Changes**
-    - Added constructor to OsdMesh with a FarMesh * as input
-    - Modify CMake to name and sym-link DSO's based on Linux ABI versioning spec
-    - Added command line input to DX11 viewer
-    - FarMultiMesh can splice uniform and adaptive meshes together.
-
-**Bug Fixes**
-    - Fix FarMultiMesh splicing
-    - Removed unnecessary cudaThreadSynchronize calls.
-    - Fix glViewer overlapping HUD menus
-    - Fix facevarying rendering in glBatchViewer
-    - Fix build of GLSL transform feedback kernels
-    - Fix 'Getting Started' documentation
-
-
-Release 2.0.1
-=============
-
-**New Features**
-    - New CLA files to reflect Apache 2.0 licensing
-
-**Changes**
-    - Move all public headers to include/opensubdiv/...
-    - Adding Osd documentation based on Siggraph slides
-
-**Bug Fixes**
-    - Fix incorrect transition pattern 3 in GLSL / HLSL shaders
-    - Fix CMake build to not link GPU-based libraries into libosdCPU
-    - Fix support for GLEW on OSX
-    - Fix GLFW Xrandr & xf86vmode dependency paths for X11 based systems
-    - Fix HUD display overlaps in code examples
-    - Fix FindGLEW.cmake to be aware of multiarch on linux systems
-    - Fix some hard-coded include paths in CMake build
-
-
-Release 2.0.0
-=============
-
-**New Features**
-    - New CMake build flags: NO_LIB, NO_CUDA, NO_PYTHON)
-
-**Changes**
-    - OpenSubdiv is now under Apache 2.0 license
-    - HbrHalfedge and HbrFVarData copy constructors are now private
-    - Documentation style matched to graphics.pixar.com + new content
-    - Add an animation freeze button to ptexViewer
-    - Variable name changes for better readability across all example
-      shader code
-
-**Bug Fixes**
-
-    - Fix incorrect patch generation for patches with 2 non-consecutive boundary edges
-    - Fix "undefined gl_PrimitiveID" shader build errors
-    - Fix for shader macro "OSD_DISPLACEMENT_CALLBACK"
-    - Fix out-of-bounds std::vector access in FarPatchTablesFactory
+OpenSubdiv 3.0 represents a landmark release, with very profound changes to the
+core algorithms. While providing faster, more efficient, and more flexible
+subdivision code remains our principal goal, OpenSubdiv 3.0 introduces many
+improvements that constitute a fairly radical departure from our previous
+versions.
 
 ----
 
-Release 1.2.4
-=============
+Improved performance
+********************
 
-**New Features**
+Release 3.0.0 of OpenSubdiv introduces a new set of data structures and
+algorithms that greatly enhance performance over previous versions.
 
-    - Adding support for fractional tessellation of patches
-    - Adding a much needed API documention system based on Docutils RST markup
-    - Adding support for face-varying interpolation in GLSL APIs
-    - Adding varying data buffers to OsdMesh
-    - Adding accessors to the vertex buffers in OsdGlMesh
-    - Adding face-varying data to regression shapes
+This release focuses mostly on the CPU side, and  should provide
+"out-of-the-box" speed-ups close to an order of magnitude for topology
+refinement and analysis (both uniform and adaptive). Please note: a very large
+portion of the 2.x code base has been completely replaced or deprecated.
 
-**Changes**
+On the GPU side, the replacement of subdivision tables with stencils allows
+us to remove several bottlenecks in the Compute area that can yield as much as
+4x faster interpolation on CUDA platforms. At the same time, stencils also
+reduce the dozens of kernel launches required per primitive to a single one (this
+was a known issue on certain mobile platforms). Compute calls batching is now
+trivial.
 
-    - Cleanup of common bicubic patch shader code (GLSL / HLSL) for portability
-      (ATI / OSX drivers)
-
-**Bug Fixes**
-
-    - Fix FarVertexEditTablesFactory to insert properly vertex edit batches
-      (fixes incorrect hierarchical hole in regression shape)
-    - Fix FarPatchMap quadtree to not drop top-level non-quad faces
-    - Fix Gregory patches bug with incorrect max-valence
-    - Fix FarPatchTables::GetNumFaces() and FarPatchTables::GetFaceVertices()
-      functions to return the correct values
-    - Fix face indexing GLSL code (ptex works on non-quads again)
-    - Fix face-varying data splicing in FarMultiMeshFactory
-    - Fix ptex face indexing in FarMultiMeshFactory
-    - Fix glew #include to not break builds
-    - Fix Clang / ICC build failures with FarPatchTables
-    - Fix build and example code to work with GFLW 3.0+
-    - Fix cmake to have ptex dynamically linked in OSX
+We will continue releasing features and improvements throughout the release
+cycle, both to match the feature set of previous releases, and to further the
+general optimization strategy described above.
 
 ----
 
-Release 1.2.3
-=============
+New topology entry-points
+*************************
 
-**New Features**
+OpenSubdiv 3.0 introduces several new entry-points for client topology. Previous
+releases forced client applications to define and populate instances of an Hbr
+half-edge topology representation. For many applications, this representation
+was both redundant and inefficient.
 
-    - Adding Varying and Face-Varying data interpolation to EvalLimit
+OpenSubdiv 3.0 introduces a new *intermediate* topological representation, named
+**Vtr** (Vectorized Topology Representation). The topological relationships
+held by Vtr can be populated using either a high-level interface where simplicity
+has been emphasized, or a lower-level interface for enhanced efficiency. Vtr is
+much more efficient for the kinds of topological analysis required by Far and
+additionally is more flexible in that it supports the specification of
+non-manifold topology.
 
-**Changes**
+As a result, Hbr is no longer a core API of OpenSubdiv. While the code is marked
+as deprecated, it will remain in the source distribution for legacy and
+regression purposes.
 
-    - EvalLimit API refactor : the EvalContext now has dedicated structs to track all
-      the vertex, varying and face-varying data streams. Also renamed some "buffers"
-      into "tables" to maintain code consistency
-    - EvalLimit optimization : switch serial indexing to a quad-tree based search
-
-**Bug Fixes**
-
-    - Face-varying data bug fixes : making sure the data is carried around appropriately
-      Fixes for OpenCL use with the new batching APIs
-    - GLSL general shader code cleanup & fixes for better portability
-    - GLSL Tranform Feedback initialization fix
-    - Critical fix for FarMultiMesh batching (indexing was incorrect)
-    - Fix osdutil CL implementation (protect #includes on systems with no OpenCL SDK
-      installed)
-    - Fix face-varying interpolation on adaptive patches
-    - FarPatchTables : fix IsFeatureAdaptive() to return the correct answer
-    - Fix Far factories to handle the absence of face-varying data correctly.
-    - Many GLSL shader code style fixes which should help with ATI / OSX shader compiling
+The documentation for Vtr can be found `here <vtr_overview.html>`__
 
 ----
 
-Release 1.2.2
-=============
+New treatment of face-varying data
+**********************************
 
-**New Features**
+With Hbr no longer being the entry point for client-code, OpenSubdiv 3.0 has to
+provide a new interface for face-varying data. Previous versions required
+face-varying data to be assigned by value to the vertex for each face, and
+whether or not the set of values around a vertex was continuous was determined
+by comparing these values later. In some cases this could result in two values
+that were not meant to be shared being "welded" together.
 
-    - Introducing the EvalLimit API : the Eval module aims at providing support for
-      computational tasks that are not related to drawing the surfaces. The EvalLimit
-      sub-module provides an API that enables client code to evaluate primitive variables
-      on the limit surface.
+Face-varying data is now specified topologically. Just as the vertex topology
+is defined from a set of vertices and integer references to these vertices for
+the vertex of each face, face-varying topology is defined from a set of values
+and integer references to these values for the vertex of each face. So if
+values are to be considered distinct around a vertex, they are given distinct
+indices and no comparison of values is ever performed.
 
-    .. image:: images/evalLimit_hedit0.jpg
-       :height: 300px
-       :align: center
-       :target: images/evalLimit_hedit0.jpg
-
-    - Osd<xxx>ComputeController : minor optimization. Added early exit to Refine method
-      to avoid unnecessary interop.
-
-**Changes**
-
-    - OsdGLDawContext : minor API change. Protecting some member variables and adding
-      const accessors
-    - OsdError : minor API refactor, added Warning functions.
-
-**Bug Fixes**
-
-    - Fix Ptex bug : prevent corner texel guttering code to from going into infinite
-      loops
-    - Adding the ability for a FarMeshFactory to construct patchTables starting from
-      'firstLevel' in uniform subdivision mode
-    - Consolidating the color coding of bicubic patch types through all our our code
-      examples (this is used mostly as a debugging tool)
-    - Fixing some MSVC++ build warnings
-    - Update to the outdated README.md
+This ensures that OpenSubdiv's face-varying topology matches what is specified
+in common geometry container formats like Obj or Alembic. It also allows for
+more efficient processing of face-varying values during refinement, and so the
+cost of interpolating a set of face-varying data should now be little more than
+the cost of interpolating a similar set of vertex data (depending on the number
+of distinct face-varying values versus the number of vertices).
 
 ----
 
-Release 1.2.1
-=============
+Subdivision Core (Sdc)
+**********************
 
-**New Features**
+In consideration of the existing representations (Hbr and Vtr), all low-level
+details fundamental to subdivision and the specific subdivision schemes have
+been factored into a new low-level layer (the lowest) called Sdc. This layer
+encapsulates the full set of applicable options, the formulae required to
+support semi-sharp creasing, the formulae for the refinement masks of each
+subdivision scheme, etc.
 
-    - Added CUDA runtime error checking
+Sdc provides the low-level nuts and bolts to provide a subdivision
+implementation consistent with OpenSubdiv. It is used internally by Vtr and
+Far but can also provide client-code with an existing implementation of their
+own with the details to make that implementation consistent with OpenSubdiv.
 
-----
-
-Release 1.2.0
-=============
-
-**Changes**
-
-    - Major Far refactor around patchTables to introduce the draw batching API
-    - Renaming osd_util to osdutil
-
-**Bug Fixes**
-
-    - Fix GLSL transform feedback initialization bug in ptexViewer
-    - Minor bug & typo fixes
+The documentation for Sdc can be found `here <sdc_overview.html>`__
 
 ----
 
-Release 1.1.0
-=============
+Introducing Stencil Tables
+**************************
 
-**New Features**
+OpenSubdiv 3.0 replaces the serialized subdivision tables with factorized
+stencil tables. Subdivision tables as implemented in 2.x releases still contain
+a fairly large amount of data inter-dependencies, which incur penalties from
+fences or force additional kernel launches. Most of these dependencies have now
+been factorized away in the pre-computation stage, yielding *stencil tables*
+instead.
 
-    - release initiated because of the switch to Git Flow
+Stencils remove all data dependencies and simplify all the computations into a
+single trivial kernel. This simplification results in a faster pre-computation
+stage, faster execution on GPU, with fewer driver overheads. The new stencil
+tables Compute back-end is supported on all the same platforms as previous
+releases (except GCD).
 
 ----
 
-Release 1.0.0
-=============
+New Source-Code Style
+*********************
 
-Oringal release:
+OpenSubdiv 3.0 replaces naming prefixes with C++ namespaces for all API layers,
+bringing the source style more in line with contemporary specifications
+(mostly inspired from the `Google C++ Style Guide
+<http://google-styleguide.googlecode.com/svn/trunk/cppguide.xml>`__).
 
+The large-scale changes introduced in this release generally break compatibility
+with existing client-code. However, this gives us the opportunity to effect
+some much needed updates to our code-style guidelines and general conventions,
+throughout the entire OpenSubdiv code-base. We are hoping to drastically
+improve the quality, consistency and readability of the source code.
+
+While the bulk of code refactoring is mostly in place, we are still tweaking
+some of the finer details. After this Beta release we are not anticipating any
+further significant changes.
+
+----
+
+New Tutorials
+*************
+
+Documentation has been re-organized and fleshed out (although there is still a
+lot of work remaining). Because the "code examples" have been generally overly
+complicated, with this release we are introducing a number of new `tutorials
+<tutorials.html>`__. We are trying to keep these tutorials as simple as
+possible, with no external dependencies (although some of them generate OBJ or
+Maya MEL scripts as a way of visualizing the output). We are planning on releasing
+more tutorials as time and resources allow.
+
+----
+
+Changes to the Subdivision Specification
+========================================
+
+The refactoring of OpenSubdiv 3.0 data representations presents a unique
+opportunity to revisit some corners of the subdivision specification and
+remove or update some legacy features.
+
+Vertex Interpolation Rules
+**************************
+
+Since the various options are now presented through a new API (Sdc rather than
+Hbr), based on the history of some of these options and input from interested
+parties, the following changes have been implemented:
+
+    * Legacy modes of the *"smoothtriangle"* rule have been removed (as they
+      were never actually enabled in the code). Values for *"TriangleSubdivision"*
+      are now:
+
+        * TRI_SUB_CATMARK - Catmull-Clark weights (default)
+        * TRI_SUB_SMOOTH - "smooth triangle" weights
+
+    * The naming of the standard creasing method has been changed from *Normal*
+      to *Uniform*.  Values for *"CreasingMethod"* are now:
+
+        * CREASE_UNIFORM - the standard integer subtraction per level
+        * CREASE_CHAIKIN - use Chaikin averaging around vertices
+
+      The current implementation of the *"Chaikin"* rule shows small
+      numerical differences with results obtained from Hbr in 2.x releases.
+      Considering that the feature is rarely used and that the current
+      implementation is likely the more correct one, we consider the
+      current implementation as *the standard*. Aside from a conscious
+      deviation at boundaries (where infinitely sharp creases are now excluded
+      from the averaging in 3.0 to allow proper decay of a semi-sharp edge
+      to 0), all other deviations found have been identified as flaws in the
+      implementation of 2.x (and are not easily corrected).
+      
+      We will review input from the community on this matter during the Beta
+      release cycle.
+
+In all cases, features in active use are not being removed but simply
+re-expressed in what is hoped to be a clearer interface.
+
+We will welcome feedback and constructive comments as we deploy these changes.
+We hope to converge toward a general consensus and lock these APIs by the end
+of Beta cycle.
+
+Face-varying Interpolation Rules
+********************************
+
+Face-varying interpolation was previously defined by a "boundary interpolation"
+enum with four modes and an additional boolean "propagate corners" option,
+which was little understood.  The latter was only used in conjunction with one
+of the four modes, so it was effectively a unique fifth choice.  Deeper analysis
+of all of these modes revealed unexpected and undesirable behavior in some common
+cases -- to an extent that could not simply be changed -- and so additions have
+been made to avoid such behavior.
+
+All choices are now provided through a single "linear interpolation" enum --
+intentionally replacing the use of "boundary" in its naming as the choice also
+affects interior interpolation.  The naming now reflects the fact that
+interpolation is constrained to be linear where specified by the choice.
+
+All five of Hbr's original modes of face-varying interpolation are supported
+(with minor modifications where Hbr was found to be incorrect in the presence
+of semi-sharp creasing).  An additional mode has also been added to allow for
+additional control around T-junctions where multiple disjoint face-varying
+regions meet at a vertex.
+
+The new values for the *"FVarLinearInterpolation"* are:
+
+    * FVAR_LINEAR_NONE          - smooth everywhere ("edge only")
+    * FVAR_LINEAR_CORNERS_ONLY  - sharpen corners only
+    * FVAR_LINEAR_CORNERS_PLUS1 - ("edge corner")
+    * FVAR_LINEAR_CORNERS_PLUS2 - ("edge and corner + propagate corner")
+    * FVAR_LINEAR_BOUNDARIES    - piecewise linear edges and corners ("always sharp")
+    * FVAR_LINEAR_ALL           - bilinear interpolation ("bilinear") (default)
+
+Aside from the two "corners plus" modes that preserve Hbr behavior, all other
+modes are designed so that the interpolation of a disjoint face-varying region
+is not affected by changes to other regions that may share the same vertex. So
+the behavior of a disjoint region should be well understood and predictable
+when looking at it in isolation (e.g. with "corners only" one would expect to
+see linear constraints applied where there are topological corners or infinitely
+sharp creasing applied within the region, and nowhere else).  This is not true
+of the "plus" modes, and they are named to reflect the fact that more is taken
+into account where disjoint regions meet.
+
+These are illustrated in more detail elsewhere in the documentation, the tutorials
+and the example shapes.
+
+Hierarchical Edits
+******************
+
+Currently Hierarchical Edits have been marked as "extended specification" and
+support for hierarchical features has been removed from the 3.0 release. This
+decision allows for great simplifications of many areas of the subdivision
+algorithms. If we can identify legitimate use-cases for hierarchical tags, we
+will consider re-implementing them in future releases, as time and resources
+allow.
+
+----
+
+Beta Release Notes
+==================
+
+Our intentions as open-source developers is to give as much access to our code,
+as early as possible, because we value and welcome the feedback from the
+community.
+
+With the 'Beta' release cycle, we hope to give stake-holders a time-window to
+provide feedback on decisions made and changes in the code that may impact
+them. Our Beta code is likely not feature-complete yet, but the general
+structure and architectures will be sufficiently locked in place for early
+adopters to start building upon these releases.
+
+Within 'Master' releases, we expect APIs to be backward compatible so that
+existing client code can seamlessly build against newer releases. Changes
+may include bug fixes as well as new features.
+
+.. container:: notebox
+
+    **Beta Features**
+
+    The following is a short list of features that hopefully will land before
+    the master release:
+
+        #. Non-linear Face-varying Patches:
+           While the fundamental refinement and interpolation of face-varying
+           data is correct, it has been and remains linearly approximated in
+           the patches created in Far that are most used for evaluation and
+           display.  We want to update the patch tables to support non-linear
+           patches for the face-varying data.
+
+        #. Improved Robustness with Non-Manifold Topology:
+           With the replacement of Hbr with Vtr in 3.0, many non-manifold
+           topologies can be represented and effectively subdivided.  One
+           situation that was deferred is that of a "degenerate edge", i.e an
+           edge that has the same vertex at both ends.  Plans are to update
+           the refinement code within Vtr to do something reasonable in these
+           cases.
+
+
+----
+
+3.x Release Cycle RoadMap
+=========================
+
+Within the 3.x release cycle we would like to continue to address many of the
+issues related to scaling the application of subdivision surfaces to large amounts
+of primitives within typical graphics pipelines, as well as complete other
+functionality that has long been missing from evaluation and display.
+
+Enabling workflows at larger scales will require improvements on several fronts:
+
+* Handle more primitives, but with fewer overheads:
+
+    * Reduce Compute kernel launches,which we will achieve using stencils instead
+      of subdivision tables
+    * Reduce Draw calls by addressing the combinatorial explosion of tessellation
+      shaders
+    * Provide back-ends for next-gen APIs (D3D12, Mantle, Metal, GL 5.x)
+
+* Handle more semi-sharp creases: feature isolation needs to become much more
+  efficient to allow for complete creative freedom in using the feature.
+* Faster topology analysis
+
+As for missing functionality, as the potential standard for evaluation and display
+of subdivision surfaces, OpenSubdiv is still lacking in its support of subdivision
+schemes other than Catmark -- specifically Loop.  Ultimately the same level of
+performance and functionality achieved with Catmark should be available for Loop,
+which is more effective in dealing with triangle-based meshes.  With the refactoring
+of the core refinement code in 3.0, much more of the supporting code for the schemes
+can be shared so we have already reduced the effort to bring Loop up to par with
+Catmark.  We hope to take steps in this direction in an upcoming 3.x release.
+
+
+Release 2.x
+===========
+
+`Previous releases <release_notes_2x.html>`_

@@ -30,19 +30,28 @@
 #include "../osd/nonCopyable.h"
 #include "../osd/vertexDescriptor.h"
 #include "../osd/vertex.h"
+#include "../far/types.h"
 
-#include "../far/patchTables.h"
+#include <vector>
 
 namespace OpenSubdiv {
 namespace OPENSUBDIV_VERSION {
 
-class OsdCpuSmoothNormalContext :  private OsdNonCopyable<OsdCpuSmoothNormalContext> {
+namespace Far {
+    class TopologyRefiner;
+}
+
+namespace Osd {
+
+class CpuSmoothNormalContext :  private NonCopyable<CpuSmoothNormalContext> {
 
 public:
 
-    /// Creates an OsdCpuComputeContext instance
+    /// Creates an CpuComputeContext instance
     ///
-    /// @param patchTables  The FarPatchTables used for this Context.
+    /// @param refiner      The uniformly refined Far::TopologyRefiner
+    ///
+    /// @param level        Refinement level used to generate normals
     ///
     /// @param resetMemory  Set to true if the target vertex buffer needs its
     ///                     memory reset before accumulating the averaged normals.
@@ -50,8 +59,8 @@ public:
     ///                     Controller, then the vertex buffer will already have
     ///                     been reset and this step can be skipped to save time.
     ///
-    static OsdCpuSmoothNormalContext * Create(
-        FarPatchTables const *patchTables, bool resetMemory=false);
+    static CpuSmoothNormalContext * Create(
+        Far::TopologyRefiner const & refiner, int level, bool resetMemory=false);
 
     /// Binds a vertex and a varying data buffers to the context. Binding ensures
     /// that data buffers are properly inter-operated between Contexts and
@@ -76,8 +85,8 @@ public:
         _iBuffer = in ? in->BindCpuBuffer() : 0;
         _oBuffer = out ? out->BindCpuBuffer() : 0;
 
-        _iDesc = OsdVertexBufferDescriptor( iOfs, 3, in->GetNumElements() );
-        _oDesc = OsdVertexBufferDescriptor( oOfs, 3, out->GetNumElements() );
+        _iDesc = VertexBufferDescriptor( iOfs, 3, in->GetNumElements() );
+        _oDesc = VertexBufferDescriptor( oOfs, 3, out->GetNumElements() );
 
         _numVertices = out->GetNumVertices();
     }
@@ -91,15 +100,20 @@ public:
         _numVertices = 0;
     }
 
-    /// Returns the vector of patch arrays
-    const FarPatchTables::PatchArrayVector & GetPatchArrayVector() const {
-        return _patchArrays;
+    Far::Index const * GetFaceVertices() const {
+        return &_faceVerts[0];
     }
 
-    /// The ordered array of control vertex indices for all the patches
-    const std::vector<unsigned int> & GetControlVertices() const {
-        return _patches;
+
+    int GetNumFaces() const {
+        return (int)_faceVerts.size()/4;
     }
+
+    /// Returns the number of vertices in output vertex buffer
+    int GetNumVertices() const {
+        return _numVertices;
+    }
+
 
     /// Returns a pointer to the data of the input buffer
     float const * GetCurrentInputVertexBuffer() const {
@@ -111,20 +125,15 @@ public:
         return _oBuffer;
     }
 
-    /// Returns an OsdVertexDescriptor for the input vertex data
-    OsdVertexBufferDescriptor const & GetInputVertexDescriptor() const {
+    /// Returns an VertexDescriptor for the input vertex data
+    VertexBufferDescriptor const & GetInputVertexDescriptor() const {
         return _iDesc;
     }
 
-    /// Returns an OsdVertexDescriptor for the buffer where the normals data
+    /// Returns an VertexDescriptor for the buffer where the normals data
     /// will be stored
-    OsdVertexBufferDescriptor const & GetOutputVertexDescriptor() const {
+    VertexBufferDescriptor const & GetOutputVertexDescriptor() const {
         return _oDesc;
-    }
-
-    /// Returns the number of vertices in output vertex buffer
-    int GetNumVertices() const {
-        return _numVertices;
     }
 
     /// Returns whether the controller needs to reset the vertex buffer before
@@ -141,17 +150,16 @@ public:
 
 protected:
     // Constructor
-    explicit OsdCpuSmoothNormalContext(
-        FarPatchTables const *patchTables, bool resetMemory);
+    explicit CpuSmoothNormalContext(Far::TopologyRefiner const & refiner,
+        int level, bool resetMemory);
 
 private:
 
     // Topology data for a mesh
-    FarPatchTables::PatchArrayVector     _patchArrays;    // patch descriptor for each patch in the mesh
-    FarPatchTables::PTable               _patches;        // patch control vertices
+    std::vector<Far::Index> _faceVerts; // patch control vertices
 
-    OsdVertexBufferDescriptor _iDesc,
-                              _oDesc;
+    VertexBufferDescriptor _iDesc,
+                           _oDesc;
 
     int _numVertices;
 
@@ -161,6 +169,8 @@ private:
     bool _resetMemory;  // set to true if the output buffer needs to be reset to 0
 };
 
+
+}  // end namespace Osd
 
 }  // end namespace OPENSUBDIV_VERSION
 using namespace OPENSUBDIV_VERSION;

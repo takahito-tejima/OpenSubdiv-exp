@@ -8,7 +8,6 @@ Feel free to use it and let us know what you think.
 
 For more details about OpenSubdiv, see [Pixar Graphics Technologies](http://graphics.pixar.com).
 
-
 ## Git Flow
 
 We have adopted the git flow branching model. It is not necessary to use the git-flow extensions, though you may find them useful! But it will be helpful to read about the git flow branching model in order to understand the organization of branches and tags that you will find in the repository.
@@ -31,6 +30,7 @@ Required:
 Optional:
 * [GLEW](http://sourceforge.net/projects/glew/) (Windows/Linux only)
 * [CUDA](http://developer.nvidia.com/category/zone/cuda-zone)
+* [TBB] (https://www.threadingbuildingblocks.org/)
 * [OpenCL](http://www.khronos.org/opencl/)
 * [GLFW](http://www.glfw.org/)
 * [Ptex](https://github.com/wdas/ptex)
@@ -56,16 +56,17 @@ Optional:
 
 -DNO_LIB=1        // disable the opensubdiv libs build (caveat emptor)
 -DNO_EXAMPLES=1   // disable examples build
+-DNO_TUTORIALS=1  // disable tutorials build
 -DNO_REGRESSION=1 // disable regression tests build
--DNO_PYTHON=1     // disable Python SWIG build
 -DNO_MAYA=1       // disable Maya plugin build
 -DNO_PTEX=1       // disable PTex support
 -DNO_DOC=1        // disable documentation build
 -DNO_OMP=1        // disable OpenMP
+-DNO_TBB=1        // disable TBB
 -DNO_CUDA=1       // disable CUDA
 -DNO_OPENCL=1     // disable OpenCL
+-DNO_OPENGL=1     // disable OpenGL
 -DNO_CLEW=1       // disable CLEW wrapper library
--DNO_GCD=1        // disable GrandCentralDispatch on OSX
 ````
 
 The paths to Maya, Ptex, GLFW, and GLEW can also be specified through the
@@ -181,7 +182,7 @@ You can then use CMake to configure and generate an Xcode project:
 ````
 mkdir build-ios
 cd build-ios
-cmake -DCMAKE_TOOLCHAIN_FILE=[path to iOS.cmake] -GXcode ..
+cmake -DNO_CUDA=1 -DCMAKE_TOOLCHAIN_FILE=[path to iOS.cmake] -GXcode ..
 
 xcodebuild -target install -configuration Debug
 ````

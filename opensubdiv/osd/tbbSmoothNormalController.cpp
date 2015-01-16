@@ -31,6 +31,8 @@
 namespace OpenSubdiv {
 namespace OPENSUBDIV_VERSION {
 
+namespace Osd {
+
 inline void
 cross(float *n, const float *p0, const float *p1, const float *p2) {
 
@@ -82,7 +84,7 @@ class TBBSmoothNormalKernel {
     float const * _iBuffer;
     float * _oBuffer;
 
-    unsigned int const * _vertIndices;
+    Far::Index const * _vertIndices;
 
     int _iStride,
         _oStride,
@@ -129,7 +131,7 @@ public:
                            int iStride,
                            float * oBuffer,
                            int oStride,
-                           unsigned int const * vertIndices,
+                           Far::Index const * vertIndices,
                            int numVertices ) :
         _iBuffer(iBuffer),
         _oBuffer(oBuffer),
@@ -140,68 +142,51 @@ public:
     }
 };
 
-void OsdTbbSmoothNormalController::_smootheNormals(
-    OsdCpuSmoothNormalContext * context) {
+void TbbSmoothNormalController::_smootheNormals(
+    CpuSmoothNormalContext * context) {
 
-    OsdVertexBufferDescriptor const & iDesc = context->GetInputVertexDescriptor(),
-                                    & oDesc = context->GetOutputVertexDescriptor();
+    VertexBufferDescriptor const & iDesc = context->GetInputVertexDescriptor(),
+                                 & oDesc = context->GetOutputVertexDescriptor();
 
     assert(iDesc.length==3 and oDesc.length==3);
 
-    float const * iBuffer = context->GetCurrentInputVertexBuffer() + iDesc.offset;
     float * oBuffer = context->GetCurrentOutputVertexBuffer() + oDesc.offset;
+    if (context->GetResetMemory()) {
 
-    std::vector<unsigned int> const & verts = context->GetControlVertices();
-
-    FarPatchTables::PatchArrayVector const & parrays = context->GetPatchArrayVector();
-
-    if (verts.empty() or parrays.empty() or (not iBuffer) or (not oBuffer)) {
-        return;
+        TBBResetKernel resetKernel(oBuffer, oDesc.stride);
+        tbb::blocked_range<int> range(0, context->GetNumVertices(), grain_size);
+        tbb::parallel_for(range, resetKernel);
     }
 
-    for (int i=0; i<(int)parrays.size(); ++i) {
+    {   // note: quads only !
+        float const * iBuffer = context->GetCurrentInputVertexBuffer() + iDesc.offset;
 
-        FarPatchTables::PatchArray const & pa = parrays[i];
+        Far::Index const * fverts = context->GetFaceVertices();
 
-        FarPatchTables::Type type = pa.GetDescriptor().GetType();
+        int nfaces = context->GetNumFaces();
 
-        if (type==FarPatchTables::QUADS or type==FarPatchTables::TRIANGLES) {
+        TBBSmoothNormalKernel smoothNormalkernel( iBuffer,
+                                                  iDesc.stride,
+                                                  oBuffer,
+                                                  oDesc.stride,
+                                                  fverts, 4 );
 
-
-            // if necessary, reset all normal values to 0
-            if (context->GetResetMemory()) {
-
-                TBBResetKernel resetKernel(oBuffer, oDesc.stride);
-                tbb::blocked_range<int> range(0, context->GetNumVertices(), grain_size);
-                tbb::parallel_for(range, resetKernel);
-            }
-
-            {
-                int nv = FarPatchTables::Descriptor::GetNumControlVertices(type);
-                TBBSmoothNormalKernel smoothNormalkernel( iBuffer,
-                                                          iDesc.stride,
-                                                          oBuffer,
-                                                          oDesc.stride,
-                                                          &verts[pa.GetVertIndex()],
-                                                          nv);
-
-                tbb::blocked_range<int> range(0, pa.GetNumPatches(), grain_size);
-                tbb::parallel_for(range, smoothNormalkernel);
-            }
-
-        }
+        tbb::blocked_range<int> range(0, nfaces, grain_size);
+        tbb::parallel_for(range, smoothNormalkernel);
     }
 }
 
-OsdTbbSmoothNormalController::OsdTbbSmoothNormalController() {
+TbbSmoothNormalController::TbbSmoothNormalController() {
 }
 
-OsdTbbSmoothNormalController::~OsdTbbSmoothNormalController() {
+TbbSmoothNormalController::~TbbSmoothNormalController() {
 }
 
 void
-OsdTbbSmoothNormalController::Synchronize() {
+TbbSmoothNormalController::Synchronize() {
 }
+
+}  // end namespace Osd
 
 }  // end namespace OPENSUBDIV_VERSION
 }  // end namespace OpenSubdiv

@@ -27,12 +27,15 @@
 
 #include "../version.h"
 
-#include "../osd/evalLimitContext.h"
-#include "../osd/cpuEvalLimitContext.h"
 #include "../osd/vertexDescriptor.h"
 
 namespace OpenSubdiv {
 namespace OPENSUBDIV_VERSION {
+
+namespace Osd {
+
+struct LimitLocation;
+class CpuEvalLimitContext;
 
 /// \brief CPU controler for limit surface evaluation.
 ///
@@ -56,20 +59,14 @@ namespace OPENSUBDIV_VERSION {
 /// evalCtroller->Unbind();
 /// \endcode
 ///
-class OsdCpuEvalLimitController {
+class CpuEvalLimitController {
 
 public:
     /// Constructor.
-    OsdCpuEvalLimitController();
+    CpuEvalLimitController();
 
     /// Destructor.
-    ~OsdCpuEvalLimitController();
-
-    /// \brief Represents a location on the limit surface
-    struct OsdEvalCoords {
-        int face;   // Ptex unique face ID
-        float u,v;  // local u,v
-    };
+    ~CpuEvalLimitController();
 
     /// \brief Binds control vertex data buffer
     ///
@@ -77,7 +74,9 @@ public:
     ///
     /// @param inQ     input vertex data
     ///
-    /// @param oDesc   data descriptor shared by all output data buffers
+    /// @param oDesc   data descriptor for the outQ data buffer
+    ///                -- derivative buffers do not have a descriptor and
+    ///                cannot be offset or padded with a stride (yet ?)
     ///
     /// @param outQ    output vertex data
     ///
@@ -86,8 +85,8 @@ public:
     /// @param outdQv  output derivative along "v" of the vertex data (optional)
     ///
     template<class INPUT_BUFFER, class OUTPUT_BUFFER>
-    void BindVertexBuffers( OsdVertexBufferDescriptor const & iDesc, INPUT_BUFFER *inQ,
-                            OsdVertexBufferDescriptor const & oDesc, OUTPUT_BUFFER *outQ,
+    void BindVertexBuffers( VertexBufferDescriptor const & iDesc, INPUT_BUFFER *inQ,
+                            VertexBufferDescriptor const & oDesc, OUTPUT_BUFFER *outQ,
                                                                      OUTPUT_BUFFER *outdQu=0,
                                                                      OUTPUT_BUFFER *outdQv=0 ) {
         _currentBindState.vertexData.inDesc = iDesc;
@@ -105,13 +104,13 @@ public:
     ///
     /// @param inQ    input varying data
     ///
-    /// @param oDesc  data descriptor shared by all output data buffers
+    /// @param oDesc  data descriptor for the outQ data buffer
     ///
     /// @param outQ   output varying data
     ///
     template<class INPUT_BUFFER, class OUTPUT_BUFFER>
-    void BindVaryingBuffers( OsdVertexBufferDescriptor const & iDesc, INPUT_BUFFER *inQ,
-                             OsdVertexBufferDescriptor const & oDesc, OUTPUT_BUFFER *outQ ) {
+    void BindVaryingBuffers( VertexBufferDescriptor const & iDesc, INPUT_BUFFER *inQ,
+                             VertexBufferDescriptor const & oDesc, OUTPUT_BUFFER *outQ ) {
         _currentBindState.varyingData.inDesc = iDesc;
         _currentBindState.varyingData.in = inQ ? inQ->BindCpuBuffer() : 0;
 
@@ -128,14 +127,17 @@ public:
     ///
     /// @param iDesc  data descriptor shared by all input data buffers
     ///
-    /// @param oDesc  data descriptor shared by all output data buffers
+    /// @param inQ    input face-varying data
+    ///
+    /// @param oDesc  data descriptor for the outQ data buffer
     ///
     /// @param outQ   output face-varying data
     ///
-    template<class OUTPUT_BUFFER>
-    void BindFacevaryingBuffers( OsdVertexBufferDescriptor const & iDesc,
-                                 OsdVertexBufferDescriptor const & oDesc, OUTPUT_BUFFER *outQ ) {
+    template<class INPUT_BUFFER, class OUTPUT_BUFFER>
+    void BindFacevaryingBuffers( VertexBufferDescriptor const & iDesc, INPUT_BUFFER *inQ,
+                                 VertexBufferDescriptor const & oDesc, OUTPUT_BUFFER *outQ ) {
         _currentBindState.facevaryingData.inDesc = iDesc;
+        _currentBindState.facevaryingData.in = inQ ? inQ->BindCpuBuffer() : 0;
 
         _currentBindState.facevaryingData.outDesc = oDesc;
         _currentBindState.facevaryingData.out = outQ ? outQ->BindCpuBuffer() : 0;
@@ -153,7 +155,9 @@ public:
     ///
     /// @param context  the EvalLimitContext that the controller will evaluate
     ///
-    /// @param outDesc  data descriptor (offset, length, stride)
+    /// @param outDesc  data descriptor for the outQ data buffer
+    ///                 -- derivative buffers do not have a descriptor and
+    ///                 cannot be offset or padded with a stride (yet ?)
     ///
     /// @param outQ    output vertex data
     ///
@@ -163,9 +167,9 @@ public:
     ///
     /// @return 1 if the sample was found
     ///
-    int EvalLimitSample( OpenSubdiv::OsdEvalCoords const & coord,
-                         OsdCpuEvalLimitContext * context,
-                         OsdVertexBufferDescriptor const & outDesc,
+    int EvalLimitSample( LimitLocation const & coord,
+                         CpuEvalLimitContext * context,
+                         VertexBufferDescriptor const & outDesc,
                          float * outQ,
                          float * outDQU,
                          float * outDQV ) const;
@@ -184,8 +188,8 @@ public:
     /// @return the number of samples found (0 if the location was tagged as a hole
     ///         or the coordinate was invalid)
     ///
-    int EvalLimitSample( OpenSubdiv::OsdEvalCoords const & coords,
-                         OsdCpuEvalLimitContext * context,
+    int EvalLimitSample( LimitLocation const & coords,
+                         CpuEvalLimitContext * context,
                          unsigned int index ) const {
         if (not context)
             return 0;
@@ -204,17 +208,17 @@ protected:
 
     // Vertex interpolated streams
     struct VertexData {
-        
+
         VertexData() : in(0), out(0), outDu(0), outDv(0) { }
-    
+
 
         void Reset() {
             in = out = outDu = outDv = NULL;
             inDesc.Reset();
             outDesc.Reset();
         }
-    
-        OsdVertexBufferDescriptor inDesc,
+
+        VertexBufferDescriptor inDesc,
                                   outDesc;
         float * in,
               * out,
@@ -224,17 +228,17 @@ protected:
 
     // Varying interpolated streams
     struct VaryingData {
-        
+
         VaryingData() : in(0), out(0) { }
 
-    
+
         void Reset() {
             in = out = NULL;
             inDesc.Reset();
             outDesc.Reset();
         }
-    
-        OsdVertexBufferDescriptor inDesc,
+
+        VertexBufferDescriptor inDesc,
                                   outDesc;
         float * in,
               * out;
@@ -242,25 +246,26 @@ protected:
 
     // Facevarying interpolated streams
     struct FacevaryingData {
-        
-        FacevaryingData() : out(0) { }
-    
+
+        FacevaryingData() : in(0), out(0) { }
+
         void Reset() {
-            out = NULL;
+            in = out = NULL;
             inDesc.Reset();
             outDesc.Reset();
         }
-    
-        OsdVertexBufferDescriptor inDesc,
-                                  outDesc;
-        float * out;
+
+        VertexBufferDescriptor inDesc,
+                               outDesc;
+        float * in,
+              * out;
     };
-    
+
 
 private:
 
-    int _EvalLimitSample( OpenSubdiv::OsdEvalCoords const & coords,
-                          OsdCpuEvalLimitContext * context,
+    int _EvalLimitSample( LimitLocation const & coords,
+                          CpuEvalLimitContext * context,
                           unsigned int index ) const;
 
     // Bind state is a transitional state during refinement.
@@ -268,7 +273,7 @@ private:
     struct BindState {
 
         BindState() { }
-        
+
         void Reset() {
             vertexData.Reset();
             varyingData.Reset();
@@ -276,12 +281,14 @@ private:
         }
 
         VertexData       vertexData;      // vertex interpolated data descriptor
-        VaryingData      varyingData;     // varying interpolated data descriptor 
-        FacevaryingData  facevaryingData; // face-varying interpolated data descriptor 
+        VaryingData      varyingData;     // varying interpolated data descriptor
+        FacevaryingData  facevaryingData; // face-varying interpolated data descriptor
     };
 
     BindState _currentBindState;
 };
+
+} // end namespace Osd
 
 } // end namespace OPENSUBDIV_VERSION
 using namespace OPENSUBDIV_VERSION;

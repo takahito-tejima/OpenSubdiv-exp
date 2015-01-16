@@ -37,21 +37,13 @@ public:
     GLhud();
     ~GLhud();
 
-    void Init(int width, int height) {
-        Init(width, height, width, height);
-    }
-
-    void Rebuild(int width, int height) {
-        Rebuild(width, height, width, height);
-    }
-
     virtual void Init(int width, int height, int framebufferWidth, int framebufferHeight);
 
     virtual void Rebuild(int width, int height,
                          int framebufferWidth, int framebufferHeight);
 
     virtual bool Flush();
-    
+
     void SetFrameBuffer(GLFrameBuffer * frameBuffer) {
         if (not _frameBuffer) {
             _frameBuffer = frameBuffer;
@@ -62,6 +54,10 @@ public:
 
     GLFrameBuffer * GetFrameBuffer() {
         return _frameBuffer;
+    }
+
+    GLuint GetFontTexture() const {
+        return _fontTexture;
     }
 
 private:

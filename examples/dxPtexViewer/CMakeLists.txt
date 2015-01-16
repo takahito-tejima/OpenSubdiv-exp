@@ -53,6 +53,8 @@ _add_possibly_cuda_executable(dxPtexViewer WIN32
     "${SOURCE_FILES}"
     "${SHADER_FILES}"
     "${INC_FILES}"
+    $<TARGET_OBJECTS:regression_common_obj>
+    $<TARGET_OBJECTS:regression_vtr_utils_obj>
     $<TARGET_OBJECTS:examples_common_obj>
 )
 
