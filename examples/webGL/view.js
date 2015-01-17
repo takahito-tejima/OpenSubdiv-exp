@@ -169,10 +169,10 @@ function fitCamera()
             max[j] = (max[j] > p[j]) ? max[j] : p[j];
         }
     }
-    var size = [max[0]-min[0], max[1]-min[1], max[2]-min[2]];
-    var diag = Math.sqrt(size[0]*size[0] + size[1]*size[1] + size[2]*size[2]);
+    model.size = [max[0]-min[0], max[1]-min[1], max[2]-min[2]];
+    model.diag = Math.sqrt(model.size[0]*model.size[0] + model.size[1]*model.size[1] + model.size[2]*model.size[2]);
 
-    camera.dolly = diag*0.8;
+    camera.dolly = model.diag*0.8;
     center = [(max[0]+min[0])*0.5, (max[1]+min[1])*0.5, (max[2]+min[2])*0.5];
 }
 
@@ -237,7 +237,7 @@ function setModel(data)
 
 function animate(time)
 {
-    var r = Math.sin(time);
+    var r = 2 * Math.sin(time) / model.diag;
     for (var i = 0; i < model.cageVerts.length; i += 3) {
         var x = model.cageVerts[i+0];
         var y = model.cageVerts[i+1];
@@ -981,24 +981,6 @@ function syncbuffer()
 //    dumpFrameBuffer();
 }
 
-function subdivide(targetTexture) {
-
-    return;
-
-    gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
-    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, targetTexture, 0);
-
-    var reso = model.resolution;
-    gl.viewport(0, 0, reso, reso);
-    gl.disable(gl.DEPTH_TEST);
-
-    if(model.levels == undefined) return;
-
-    gl.enableVertexAttribArray(0);
-    gl.bindBuffer(gl.ARRAY_BUFFER, vbuffer);
-    gl.vertexAttribPointer(0, 1, gl.FLOAT, false, 0, 0);
-}
-
 function idle() {
 
     if (model == null) return;
@@ -1017,7 +999,7 @@ function redraw() {
     if (model == null) return;
     // gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 
-    gl.clearColor(.1, .1, .2, 1);
+    //gl.clearColor(.1, .1, .2, 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.enable(gl.DEPTH_TEST);
     gl.disable(gl.BLEND);
@@ -1119,6 +1101,21 @@ function loadModel(url)
     });
 }
 
+function resizeCanvas() {
+    var canvas = $("#main").get(0);
+   // only change the size of the canvas if the size it's being displayed
+   // has changed.
+   var width = canvas.clientWidth;
+   var height = canvas.clientHeight;
+   if (canvas.width != width ||
+       canvas.height != height) {
+     // Change the size of the canvas to match the size it's being displayed
+     canvas.width = width;
+     canvas.height = height;
+       redraw();
+   }
+}
+
 $(function(){
     var canvas = $("#main").get(0);
     $.each(["webgl", "experimental-webgl", "webkit-3d", "moz-webgl"], function(i, name){
@@ -1162,6 +1159,7 @@ $(function(){
         }
         return false;
     };
+/*
     document.onmousewheel = function(e){
         var event = windowEvent();
         camera.dolly -= event.wheelDelta/200;
@@ -1169,6 +1167,7 @@ $(function(){
         redraw();
         return false;
     };
+*/
     canvas.onmousedown = function(e){
         var event = windowEvent();
         button = event.button + 1;
@@ -1183,6 +1182,8 @@ $(function(){
         return false;
     }
 
+    window.addEventListener('resize', resizeCanvas);
+
     var modelSelect = $("#modelSelect").get(0);
     modelSelect.onclick = function(e){
         loadModel(modelSelect.value+".json");
@@ -1192,34 +1193,20 @@ $(function(){
     $( "#tessFactorRadio" ).buttonset();
     $( 'input[name="tessFactorRadio"]:radio' ).change(
         function() {
-            if (this.id == "tf1") {
-                tessFactor = 1;
-            } else if (this.id == "tf2") {
-                tessFactor = 2;
-            } else if (this.id == "tf3") {
-                tessFactor = 3;
-            } else if (this.id == "tf4") {
-                tessFactor = 4;
-            } else if (this.id == "tf5") {
-                tessFactor = 5;
-            } else if (this.id == "tf6") {
-                tessFactor = 6;
-            }
+            tessFactor = ({tf1:1, tf2:2, tf3:3, tf4:4, tf5:5, tf6:6, tf7:7 })[this.id];
             updateGeom();
         });
 
     $( "#radio" ).buttonset();
     $( 'input[name="radio"]:radio' ).change(
         function() {
-            if (this.id == "displayShade") {
-                displayMode = 0;
-            } else if (this.id == "displayWire") {
-                displayMode = 1;
-            } else if (this.id == "displayNormal") {
-                displayMode = 2;
-            } else if (this.id == "displayPatch") {
-                displayMode = 3;
-            }
+            displayMode = ({
+                displayShade:0,
+                displayPatchColor:1,
+                displayWire:2,
+                displayNormal:3,
+                displayPatchCoord:4
+            })[this.id];
             redraw();
         });
 
@@ -1256,5 +1243,6 @@ $(function(){
     }
     */
     loadModel("cube.json");
+    resizeCanvas();
 });
 
