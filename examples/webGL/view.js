@@ -1,32 +1,40 @@
-var vTexture = null;
-var nTexture = null;
-var mTexture = null;
-var rx = 0;
-var ry = 0;
-var dolly = 5;
+//
+//   Copyright 2014 Takahito Tejima (tejimaya@gmail.com)
+//
+
+var camera = {
+    rx : 0,
+    ry : 0,
+    dolly : 5,
+    fov : 60
+};
+
 var center = [0, 0, 0];
-var fov = 60;
-var maxlevel = 1;
 var time = 0;
 var model = null;
 var deform = false;
 var drawHull = true;
 var uvMapping = false;
+
 var prevTime = 0;
 var fps = 0;
+
 var uvimage = new Image();
 var uvtex = null;
+
 var program = null;
+var cageProgram = null;
+
 var interval = null;
 var framebuffer = null;
 
 var displayMode = 1;
 
-
 var tessFactor = 1;
 
-function windowEvent(){
-    if (window.event) 
+function windowEvent()
+{
+    if (window.event)
         return window.event;
     var caller = arguments.callee.caller;
     while (caller) {
@@ -38,7 +46,8 @@ function windowEvent(){
     return null;
 }
 
-function getMousePosition(){
+function getMousePosition()
+{
     var event = windowEvent();
     var canvas = $("#main").get(0);
     canvasOffsetX = canvas.offsetLeft;
@@ -67,72 +76,15 @@ function buildProgram(vertexShader, fragmentShader)
         alert(gl.getShaderInfoLog(fshader));
     gl.attachShader(program, vshader);
     gl.attachShader(program, fshader);
-    //gl.bindAttribLocation(program, 0, "vertexID");
 
     gl.bindAttribLocation(program, 0, "position");
     gl.bindAttribLocation(program, 1, "inNormal");
     gl.bindAttribLocation(program, 2, "inUV");
 
     gl.linkProgram(program)
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) 
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS))
         alert(gl.getProgramInfoLog(program));
     return program;
-}
-
-function createTextureBuffer2(data, format, reso)
-{
-    if(format == gl.LUMINANCE) {
-	data.length = reso*reso;
-    }else if(format == gl.LUMINANCE_ALPHA)
-	data.length = reso*reso*2;
-    else if(format == gl.RGB)
-	data.length = reso*reso*3;
-    else if(format == gl.RGBA)
-	data.length = reso*reso*4;
-
-    var texture = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, texture);
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, true);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-
-    gl.texImage2D(gl.TEXTURE_2D, 0, format, reso, reso,
-		  0, format, gl.FLOAT, data);
-
-    return texture;
-}
-
-function createTextureBuffer(data, format)
-{
-    var texture = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, texture);
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, true);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-
-    if (data.length > reso*reso) {
-	console.log("Data too large ", data.length);
-    }
-    
-    var d = new Array();
-    for(var j=0; j<data.length; j++){
-	d.push(data[j]);
-    }
-    if(format == gl.LUMINANCE) 
-	d.length = reso*reso;
-    else if(format == gl.LUMINANCE_ALPHA)
-	d.length = reso*reso*2;
-    else if(format == gl.RGB)
-	d.length = reso*reso*3;
-    else if(format == gl.RGBA)
-	d.length = reso*reso*4;
-    gl.texImage2D(gl.TEXTURE_2D, 0, format, reso, reso,
-		  0, format, gl.FLOAT, new Float32Array(d));
-    return texture;
 }
 
 function dumpFrameBuffer()
@@ -143,64 +95,34 @@ function dumpFrameBuffer()
     console.log(pixels);
 }
 
-function initialize(){
-
-    var reso = 512;
-    // create vertex array
-    var vertexIDs = new Array();
-    for(i = 0; i <reso*reso; i++){
-	vertexIDs.push(i);
-    }
-    numVertex = vertexIDs.length;
-    vbuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, vbuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertexIDs), gl.STATIC_DRAW);
-    gl.bindBuffer(gl.ARRAY_BUFFER, null);
-
-    buildMainProgram();
-
-    cageProgram = buildProgram("#cageVS", "#cageFS");
-    cageProgram.mvpMatrix = gl.getUniformLocation(cageProgram, "mvpMatrix");
-
-//    progFace = buildProgram('#faceKernel', '#kfshader');
-//    progEdge = buildProgram('#edgeKernel', '#kfshader');
-//    progVertexA = buildProgram('#vertexKernelA', '#kfshader');
-//    progVertexB = buildProgram('#vertexKernelB', '#kfshader');
-
-}
-
-function buildMainProgram()
+function initialize()
 {
-    if (program == null)
-	gl.deleteProgram(program);
+    // surface program
+    if (program != null) gl.deleteProgram(program);
     program = buildProgram('#vshader', '#fshader');
     program.mvpMatrix = gl.getUniformLocation(program, "mvpMatrix");
     program.modelViewMatrix = gl.getUniformLocation(program, "modelViewMatrix");
     program.projMatrix = gl.getUniformLocation(program, "projMatrix");
-
     program.displayMode = gl.getUniformLocation(program, "displayMode");
+
+    // cage program
+    if (cageProgram != null) gl.deleteProgram(cageProgram);
+    cageProgram = buildProgram("#cageVS", "#cageFS");
+    cageProgram.mvpMatrix = gl.getUniformLocation(cageProgram, "mvpMatrix");
 }
 
+function deleteModel()
+{
+    if (model == null) return;
 
-function deleteModel(data) {
-    if(data == null) return;
-
-    for(var i=0; i<data.maxLevel; i++){
-	gl.deleteBuffer(data.level[i].ibLines);
-	gl.deleteBuffer(data.level[i].ibTriangles);
+    for(var i=0; i<model.batches.length; ++i) {
+        gl.deleteBuffer(model.batches[i].ibo);
+        gl.deleteBuffer(model.batches[i].vbo);
     }
-    gl.deleteBuffer(data.ibHulls);
-    gl.deleteTexture(data.texF_IT);
-    gl.deleteTexture(data.texF_ITa);
-    gl.deleteTexture(data.texE_IT);
-    gl.deleteTexture(data.texV_IT);
-    gl.deleteTexture(data.texV_ITa1);
-    gl.deleteTexture(data.texV_ITa2);
-    gl.deleteTexture(data.texE_W);
-    gl.deleteTexture(data.texV_W);
 }
 
-function fit() {
+function fitCamera()
+{
     if (model == null) return;
 
     var n = model.cageVerts.length;
@@ -216,19 +138,18 @@ function fit() {
     var size = [max[0]-min[0], max[1]-min[1], max[2]-min[2]];
     var diag = Math.sqrt(size[0]*size[0] + size[1]*size[1] + size[2]*size[2]);
 
-    dolly = diag*0.8;
-
+    camera.dolly = diag*0.8;
     center = [(max[0]+min[0])*0.5, (max[1]+min[1])*0.5, (max[2]+min[2])*0.5];
 }
 
-function setModel(data) {
-
-
+function setModel(data)
+{
     if (data == null) return;
 
     //console.log(data);
 
     // XXX: release buffers!
+    deleteModel(model);
     model = {};
     model.patchVerts    = [];
 
@@ -275,19 +196,14 @@ function setModel(data) {
     model.valenceTable = data.vertexValences;
     model.quadOffsets = data.quadOffsets;
 
-    fit();
+    fitCamera();
 
     updateGeom();
 }
 
-function updateGeom() {
-    refine();
-    tessellate();
-    redraw();
-}
-
-function animate() {
-    var r = Math.cos(time);
+function animate(time)
+{
+    var r = Math.sin(time);
     for (var i = 0; i < model.cageVerts.length; i += 3) {
         var x = model.cageVerts[i+0];
         var y = model.cageVerts[i+1];
@@ -299,14 +215,21 @@ function animate() {
                                model.animVerts[i+1],
                                model.animVerts[i+2]];
     }
-    time = time + 0.1;
 
     gl.bindBuffer(gl.ARRAY_BUFFER, model.hullVerts);
     gl.bufferData(gl.ARRAY_BUFFER, model.animVerts, gl.STATIC_DRAW);
     gl.bindBuffer(gl.ARRAY_BUFFER, null);
 }
 
-function refine() {
+function updateGeom()
+{
+    refine();
+    tessellate();
+    redraw();
+}
+
+function refine()
+{
     if (model == null) return;
 
     for (i = 0; i < model.stencilIndices.length; i++) {
@@ -375,13 +298,8 @@ function evalGregory(indices, quadOffset, u, v) {
     var ef_small = [0.813008, 0.500000, 0.363636, 0.287505,
                     0.238692, 0.204549, 0.179211];
 
-    var r = [], rp, e0 = [], e1 = [];
-    //float  *r  = (float*)alloca((maxValence+2)*4*length*sizeof(float)), *rp,
-        //*e0 = r + maxValence*4*length,
-        //*e1 = e0 + 4*length;
-
-    //for (var i = 0; i < (maxValence+2)*4; ++i) r[i] = [0,0,0];
-
+    var r = [], e0 = [], e1 = [];
+    var rp;
     var f = [], pos, opos = [];
     var valenceTable = model.valenceTable;
     var quadOffsets = model.quadOffsets;
@@ -647,6 +565,7 @@ function tessellate() {
     var points = [];
     var indices = [];
     var vid = 0;
+    var quadOffset = 0;
     for (var i = 0; i < model.patches.length; i++) {
         var ncp = model.patches[i].length;
         if (ncp == 9 || ncp == 12) continue;  // boundary, corner patch
@@ -664,7 +583,6 @@ function tessellate() {
                 var u = iu/(div-1);
                 var v = iv/(div-1);
                 if (ncp == 4) {
-                    var quadOffset = i*4;
                     pn = evalGregory(model.patches[i], quadOffset, u, v);
                 } else {
                     pn = evalBSpline(model.patches[i], u, v);
@@ -690,6 +608,10 @@ function tessellate() {
                 ++vid;
             }
         }
+        if (ncp == 4) {
+            quadOffset += 4;
+        }
+
         // if it reached to 64K vertices, move to next batch
         if (vid > 60000) {
             appendVBO(points, indices);
@@ -705,7 +627,6 @@ function tessellate() {
 
 function syncbuffer()
 {
-//    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, vTexture, 0);
     gl.flush();
 //    dumpFrameBuffer();
 }
@@ -731,46 +652,46 @@ function subdivide(targetTexture) {
 function idle() {
 
     if (model == null) return;
-    animate();
+
+    if (deform) {
+        time = time + 0.1;
+    } else {
+        time = 0;
+    }
+    animate(time);
     updateGeom();
 }
 
 function redraw() {
 
     if (model == null) return;
+    // gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 
-//    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-
-    
-    //gl.clearColor(0, 0, 0, 0);
     gl.clearColor(.1, .1, .2, 1);
-    //gl.clearDepth(1000);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.enable(gl.DEPTH_TEST);
     gl.disable(gl.BLEND);
     gl.depthFunc(gl.LEQUAL);
 
-    
     var canvas = $('#main');
     var w = canvas.width();
     var h = canvas.height();
     var aspect = w / h;
     gl.viewport(0, 0, w, h);
-    
+
     var proj = mat4.create();
     mat4.identity(proj);
-    mat4.perspective(fov, aspect, 0.1, 1000.0, proj);
-    
+    mat4.perspective(camera.fov, aspect, 0.1, 1000.0, proj);
+
     var modelView = mat4.create();
     mat4.identity(modelView);
-    mat4.translate(modelView, [0, 0, -dolly], modelView);
-    mat4.rotate(modelView, ry*Math.PI*2/360, [1, 0, 0], modelView);
-    mat4.rotate(modelView, rx*Math.PI*2/360, [0, 1, 0], modelView);
+    mat4.translate(modelView, [0, 0, -camera.dolly], modelView);
+    mat4.rotate(modelView, camera.ry*Math.PI*2/360, [1, 0, 0], modelView);
+    mat4.rotate(modelView, camera.rx*Math.PI*2/360, [0, 1, 0], modelView);
     mat4.translate(modelView, [-center[0], -center[1], -center[2]], modelView);
-    
+
     var mvpMatrix = mat4.create();
     mat4.multiply(proj, modelView, mvpMatrix);
-
 
     if (drawHull) {
         gl.useProgram(cageProgram);
@@ -803,7 +724,6 @@ function redraw() {
         gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 10*4, 3*4); // normal
         gl.vertexAttribPointer(2, 4, gl.FLOAT, false, 10*4, 6*4); // uv, iuiv
 
-        //gl.drawElements(gl.POINTS, batch.nTris*3, gl.UNSIGNED_SHORT, 0);
         gl.drawElements(gl.TRIANGLES, batch.nTris*3, gl.UNSIGNED_SHORT, 0);
 
         drawTris += batch.nTris;
@@ -812,27 +732,6 @@ function redraw() {
     gl.disableVertexAttribArray(0);
     gl.disableVertexAttribArray(1);
     gl.disableVertexAttribArray(2);
-/*
-
-    if (drawWire) {
-	gl.uniform3f(gl.getUniformLocation(program, "diffuse"), 0, 0, 0);
-	gl.uniform3f(gl.getUniformLocation(program, "ambient"), 0.2, 0.2, 0.2);
-
-	gl.bindBuffer(gl.ARRAY_BUFFER, model.levels[maxlevel-1].ibLines);
-	gl.vertexAttribPointer(0, 1, gl.FLOAT, false, 0, 0);
-	gl.drawArrays(gl.LINES, 0, model.levels[maxlevel-1].nLines);
-    }
-    if (drawHull) {
-	gl.uniform3f(gl.getUniformLocation(program, "diffuse"), 0, 0, 0);
-	gl.uniform3f(gl.getUniformLocation(program, "ambient"), 0, 0, 0.5);
-
-	gl.bindBuffer(gl.ARRAY_BUFFER, model.ibHulls);
-	gl.vertexAttribPointer(0, 1, gl.FLOAT, false, 0, 0);
-	gl.drawArrays(gl.LINES, 0, model.nHulls);
-    }
-*/
-	
-    gl.finish();
 
     var time = Date.now();
     drawTime = time - prevTime;
@@ -849,100 +748,92 @@ function loadModel(url)
     var xhr = new XMLHttpRequest();
     xhr.open('GET', url, true);
     xhr.responseType = 'arraybuffer';
-    
     xhr.onload = function(e) {
-	setModelBin(this.response);
-	redraw();
+       setModelBin(this.response);
+       redraw();
     }
     xhr.send();
 */
     var type = "text"
     $.ajax({
-	type: "GET",
-	url: url,
-	responseType:type,
-	success: function(data) {
-            console.log("Get");
-	    setModel(data.model);
-	    redraw();
-	}
+        type: "GET",
+        url: url,
+        responseType:type,
+        success: function(data) {
+            setModel(data.model);
+            redraw();
+        }
     });
 }
 
 $(function(){
     var canvas = $("#main").get(0);
     $.each(["webgl", "experimental-webgl", "webkit-3d", "moz-webgl"], function(i, name){
-	try {
-	    gl = canvas.getContext(name);
+        try {
+            gl = canvas.getContext(name);
             gl.getExtension('OES_standard_derivatives');
-
-	} 
-	catch (e) {
-	}
-	return !gl;
+        }
+        catch (e) {
+        }
+        return !gl;
     });
     if (!gl) {
-	alert("WebGL is not supported in this browser!");
-	return;
+        alert("WebGL is not supported in this browser!");
+        return;
     }
     if(!gl.getExtension('OES_texture_float')){
-	alert("requires OES_texture_float extension");
+        alert("requires OES_texture_float extension");
     }
-    
+
     initialize();
 
     var button = false;
     var prev_position;
     document.onmousemove = function(e){
-	var event = windowEvent();
-	var p = getMousePosition();
-	if (button > 0) {
-	    var d = vec3.subtract(p, prev_position, vec3.create());
-	    prev_position = p;
-	    if (button == 1) {
-		rx += d[0];
-		ry += d[1];
-		if(ry > 90) ry = 90;
-		if(ry < -90) ry = -90;
-	    }
-	    else if(button == 3){
-                /*
-		fov -= d[0];
-		if(fov < 1) fov = 1;
-		if(fov > 170) fov = 170;
-                */
-                dolly -= d[0];
-                if (dolly <= 0.001) dolly = 0.001;
-	    }
-	    redraw();
-	}
-	return false;
+        var event = windowEvent();
+        var p = getMousePosition();
+        if (button > 0) {
+            var d = vec3.subtract(p, prev_position, vec3.create());
+            prev_position = p;
+            if (button == 1) {
+                camera.rx += d[0];
+                camera.ry += d[1];
+                if(camera.ry > 90) camera.ry = 90;
+                if(camera.ry < -90) camera.ry = -90;
+            }
+            else if(button == 3){
+                camera.dolly -= d[0];
+                if (camera.dolly < 0.1) camera.dolly = 0.001;
+            }
+            redraw();
+        }
+        return false;
     };
     document.onmousewheel = function(e){
-	var event = windowEvent();
-	dolly -= event.wheelDelta/200;
-	if (dolly < 0.1) dolly = 0.1;
-	redraw();
-	return false;
+        var event = windowEvent();
+        camera.dolly -= event.wheelDelta/200;
+        if (camera.dolly < 0.1) camera.dolly = 0.1;
+        redraw();
+        return false;
     };
     canvas.onmousedown = function(e){
-	var event = windowEvent();
-	button = event.button + 1;
-	prev_position = getMousePosition();
-	return false; // keep cursor shape
+        var event = windowEvent();
+        button = event.button + 1;
+        prev_position = getMousePosition();
+        return false; // keep cursor shape
     };
     document.onmouseup = function(e){
-	button = false;
-	return false; // prevent context menu
+        button = false;
+        return false; // prevent context menu
     }
     document.oncontextmenu = function(e){
-	return false;
+        return false;
     }
 
     var modelSelect = $("#modelSelect").get(0);
     modelSelect.onclick = function(e){
-	loadModel(modelSelect.value+".json");
-	redraw();
+        loadModel(modelSelect.value+".json");
+        redraw();
     }
 
     $( "#tessFactorRadio" ).buttonset();
@@ -993,26 +884,24 @@ $(function(){
             } else {
                 clearInterval(interval);
                 interval = null;
-                time = 0;
+                idle();
             }
             redraw();
         });
 
+    /*
     uvimage.onload = function() {
-	uvtex = gl.createTexture();
-	gl.bindTexture(gl.TEXTURE_2D, uvtex);
-	gl.pixelStorei(gl.UNPACK_ALIGNMENT, true);
-	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
-	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
-	gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, uvimage);
-
-	redraw();
+    uvtex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, uvtex);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, true);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, uvimage);
+    redraw();
     }
-
-
-		
+    */
     loadModel("cube.json");
 });
 

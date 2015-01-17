@@ -28,7 +28,7 @@
 
     <script id="vshader" type="x-shader/x-vertex">
       precision highp float;
-      
+
       uniform mat4 mvpMatrix;
       uniform mat4 modelViewMatrix;
       uniform mat4 projMatrix;
@@ -42,11 +42,8 @@
       void main(){
         vec3 p = (modelViewMatrix * vec4(position.xyz, 1)).xyz;
         normal = (modelViewMatrix * vec4(normalize(inNormal.xyz), 0)).xyz;
-      // normal = normalize(inNormal.xyz);
         uv = inUV;
         gl_Position = projMatrix * vec4(p, 1);
-
-      gl_PointSize = 5.0;
       }
     </script>
     <script id="fshader" type="x-shader/x-fragment">
@@ -80,6 +77,7 @@
 
     <style type="text/css">
       body {
+      font-size: 10pt;
       }
       canvas#main
       {
@@ -90,17 +88,20 @@
       position:absolute;
       left : 850px;
       }
+      .ui-button-text {
+      font-size: 6pt !important;
+      } 
     </style>
-  </head>	
+  </head>
+
   <body >
-    <h3>OpenSubdiv WebGL demo (3.0.0 beta)</h3>
+    <h3>OpenSubdiv 3.0 WebGL viewer</h3>
     <canvas id="main" width="800" height="600" style="position:absolute;z-index:2;background-color:black"></canvas>
     <div id="control">
     <span id="fps"></span> fps<br>
     <span id="triangles"></span> triangles<br>
     <input id="deformCheckbox" type="checkbox"><label for="deformCheckbox">Animation</label><br>
     <br>
-
     Tess factor
     <div id="tessFactorRadio">
       <input type="radio" id="tf1" name="tessFactorRadio" checked="checked"><label for="tf1">1</label>
@@ -116,13 +117,30 @@
     <select id="modelSelect" style="width:200px" size=20>
       <option value="cube" selected>cube</option>
       <option value="catmark_cube_creases0">catmark_cube_creases0</option>
+      <option value="catmark_cube_creases1">catmark_cube_creases1</option>
       <option value="catmark_cube_creases2">catmark_cube_creases2</option>
+      <option value="catmark_cube_corner0">catmark_cube_corner0</option>
+      <option value="catmark_cube_corner1">catmark_cube_corner1</option>
+      <option value="catmark_cube_corner2">catmark_cube_corner2</option>
+      <option value="catmark_cube_corner3">catmark_cube_corner3</option>
       <option value="catmark_dart_edgecorner">catmark_dart_edgecorner</option>
+      <option value="catmark_dart_edgeonly">catmark_dart_edgeonly</option>
       <option value="catmark_gregory_test1">catmark_gregory_test1</option>
       <option value="catmark_gregory_test2">catmark_gregory_test2</option>
       <option value="catmark_gregory_test3">catmark_gregory_test3</option>
       <option value="catmark_gregory_test4">catmark_gregory_test4</option>
+      <option value="catmark_gregory_test5">catmark_gregory_test5</option>
+      <option value="catmark_gregory_test6">catmark_gregory_test6</option>
+      <option value="catmark_gregory_test7">catmark_gregory_test7</option>
+      <option value="catmark_torus">catmark_torus</option>
       <option value="catmark_torus_creases0">catmark_torus_creases0</option>
+      <option value="catmark_chaikin0">catmark_chaikin0</option>
+      <option value="catmark_chaikin1">catmark_chaikin1</option>
+      <option value="catmark_chaikin2">catmark_chaikin2</option>
+      <option value="catmark_hole_test1">catmark_hole_test1</option>
+      <option value="catmark_hole_test2">catmark_hole_test2</option>
+      <option value="catmark_hole_test3">catmark_hole_test3</option>
+      <option value="catmark_hole_test4">catmark_hole_test4</option>
       <option value="catmark_helmet">catmark_helmet</option>
       <option value="catmark_car">catmark_car</option>
       <option value="catmark_bishop">catmark_bishop</option>
