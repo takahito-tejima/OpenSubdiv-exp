@@ -36,13 +36,16 @@
       attribute vec3 position;
       attribute vec3 inNormal;
       attribute vec4 inUV;
+      attribute vec3 inColor;
       varying vec3 normal;
       varying vec4 uv;
+      varying vec3 color;
 
       void main(){
         vec3 p = (modelViewMatrix * vec4(position.xyz, 1)).xyz;
         normal = (modelViewMatrix * vec4(normalize(inNormal.xyz), 0)).xyz;
         uv = inUV;
+        color = inColor;
         gl_Position = projMatrix * vec4(p, 1);
       }
     </script>
@@ -52,17 +55,19 @@
       precision highp float;
       varying vec3 normal;
       varying vec4 uv;
+      varying vec3 color;
 
       uniform int displayMode;
 
       void main()
       {
          float d = dot(normal, vec3(0, 0, 1));
-         vec4 c = vec4(d,d,d,1);
+         vec4 c = vec4(d*color,1);
+
          if (displayMode == 2) c = vec4(normal, 1);
          else if (displayMode == 3) c = vec4(uv.x, uv.y, 1, 1);
 
-         if (displayMode == 1) {
+         if (displayMode == 1) { // wire
            vec2 vRel = fract(uv.zw);
            float edge = max(1.0-vRel.x, max(1.0-vRel.y, max(vRel.x, vRel.y)));
 

@@ -32,6 +32,39 @@ var displayMode = 1;
 
 var tessFactor = 1;
 
+var patchColors = [[[1.0,  1.0,  1.0,  1.0],   // regular
+                    [1.0,  0.5,  0.5,  1.0],   // single crease
+                    [0.8,  0.0,  0.0,  1.0],   // boundary
+                    [0.0,  1.0,  0.0,  1.0],   // corner
+                    [1.0,  1.0,  0.0,  1.0],   // gregory
+                    [1.0,  0.5,  0.0,  1.0],   // gregory boundary
+                    [1.0,  1.0,  0.0,  1.0]],  // gregory basis
+
+                   [[0.0,  1.0,  1.0,  1.0],   // regular pattern 0
+                    [0.0,  0.5,  1.0,  1.0],   // regular pattern 1
+                    [0.0,  0.5,  0.5,  1.0],   // regular pattern 2
+                    [0.5,  0.0,  1.0,  1.0],   // regular pattern 3
+                    [1.0,  0.5,  1.0,  1.0]],  // regular pattern 4
+
+                   [[1.0,  0.7,  0.6,  1.0],   // single crease pattern 0
+                    [1.0,  0.7,  0.6,  1.0],   // single crease pattern 1
+                    [1.0,  0.7,  0.6,  1.0],   // single crease pattern 2
+                    [1.0,  0.7,  0.6,  1.0],   // single crease pattern 3
+                    [1.0,  0.7,  0.6,  1.0]],  // single crease pattern 4
+
+                   [[0.0,  0.0,  0.75, 1.0],   // boundary pattern 0
+                    [0.0,  0.2,  0.75, 1.0],   // boundary pattern 1
+                    [0.0,  0.4,  0.75, 1.0],   // boundary pattern 2
+                    [0.0,  0.6,  0.75, 1.0],   // boundary pattern 3
+                    [0.0,  0.8,  0.75, 1.0]],  // boundary pattern 4
+
+                   [[0.25, 0.25, 0.25, 1.0],   // corner pattern 0
+                    [0.25, 0.25, 0.25, 1.0],   // corner pattern 1
+                    [0.25, 0.25, 0.25, 1.0],   // corner pattern 2
+                    [0.25, 0.25, 0.25, 1.0],   // corner pattern 3
+                    [0.25, 0.25, 0.25, 1.0]]]; // corner pattern 4
+
+
 function windowEvent()
 {
     if (window.event)
@@ -80,6 +113,7 @@ function buildProgram(vertexShader, fragmentShader)
     gl.bindAttribLocation(program, 0, "position");
     gl.bindAttribLocation(program, 1, "inNormal");
     gl.bindAttribLocation(program, 2, "inUV");
+    gl.bindAttribLocation(program, 3, "inColor");
 
     gl.linkProgram(program)
     if (!gl.getProgramParameter(program, gl.LINK_STATUS))
@@ -247,7 +281,8 @@ function refine()
     }
 }
 
-function evalCubicBezier(u, B, BU) {
+function evalCubicBezier(u, B, BU)
+{
     var t = u;
     var s = 1 - u;
 
@@ -265,16 +300,17 @@ function evalCubicBezier(u, B, BU) {
     BU[3] = A2;
 }
 
-function evalCubicBSpline(u, B, BU) {
+function evalCubicBSpline(u, B, BU)
+{
     var t = u;
     var s = 1 - u;
-    var A0 =                      s * (0.5 * s);
+    var A0 =                     s * (0.5 * s);
     var A1 = t * (s + 0.5 * t) + s * (0.5 * s + t);
     var A2 = t * (    0.5 * t);
-    B[0] =                                     1/3.0 * s                * A0;
-    B[1] = (2/3.0 * s +           t) * A0 + (2/3.0 * s + 1/3.0 * t) * A1;
-    B[2] = (1/3.0 * s + 2/3.0 * t) * A1 + (          s + 2/3.0 * t) * A2;
-    B[3] =                1/3.0 * t  * A2;
+    B[0] =                                 1/3.0 * s              * A0;
+    B[1] = (2/3.0 * s +         t) * A0 + (2/3.0 * s + 1/3.0 * t) * A1;
+    B[2] = (1/3.0 * s + 2/3.0 * t) * A1 + (        s + 2/3.0 * t) * A2;
+    B[3] =              1/3.0 * t  * A2;
     BU[0] =    - A0;
     BU[1] = A0 - A1;
     BU[2] = A1 - A2;
@@ -324,7 +360,6 @@ function evalGregory(indices, type, quadOffset, u, v)
         pos = verts[vertexID];
         org[vid] = [pos[0], pos[1], pos[2]];
 
-        //rp=r+vid*maxValence*length;
         rp = vid*maxValence;
         //var vofs = vid;
         opos[vid] = [0,0,0];
@@ -363,7 +398,6 @@ function evalGregory(indices, type, quadOffset, u, v)
                             zerothNeighbors[vid] = i;
                         }
                     }
-                    //boundary = false;
                 }
             }
 
@@ -820,7 +854,11 @@ function tessellate() {
 
         if (i >= model.patchParams.length) continue;
         var p = model.patchParams[i];
-        if (p ==null) continue;
+        if (p == null) continue;
+
+        var color = (p[3] == 0) ?
+            patchColors[0][p[2]-6] :
+            patchColors[p[2]-6+1][p[3]-1];
 
         var level = 1 + tessFactor - p[0]/*depth*/;
         if (level < 0) level = 0;
@@ -845,6 +883,9 @@ function tessellate() {
                 points.push(v);
                 points.push(iu);
                 points.push(iv);
+                points.push(color[0]);
+                points.push(color[1]);
+                points.push(color[2]);
                 if (iu != 0 && iv != 0) {
                     indices.push(vid);
                     indices.push(vid-div);
@@ -964,13 +1005,15 @@ function redraw() {
     gl.enableVertexAttribArray(0);
     gl.enableVertexAttribArray(1);
     gl.enableVertexAttribArray(2);
+    gl.enableVertexAttribArray(3);
     for (var i = 0; i < model.batches.length; ++i) {
         var batch = model.batches[i];
         gl.bindBuffer(gl.ARRAY_BUFFER, batch.vbo);
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, batch.ibo);
-        gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 10*4, 0);   // XYZ
-        gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 10*4, 3*4); // normal
-        gl.vertexAttribPointer(2, 4, gl.FLOAT, false, 10*4, 6*4); // uv, iuiv
+        gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 13*4, 0);   // XYZ
+        gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 13*4, 3*4); // normal
+        gl.vertexAttribPointer(2, 4, gl.FLOAT, false, 13*4, 6*4); // uv, iuiv
+        gl.vertexAttribPointer(3, 3, gl.FLOAT, false, 13*4, 10*4); // color
 
         gl.drawElements(gl.TRIANGLES, batch.nTris*3, gl.UNSIGNED_SHORT, 0);
 
@@ -980,6 +1023,7 @@ function redraw() {
     gl.disableVertexAttribArray(0);
     gl.disableVertexAttribArray(1);
     gl.disableVertexAttribArray(2);
+    gl.disableVertexAttribArray(3);
 
     var time = Date.now();
     drawTime = time - prevTime;
