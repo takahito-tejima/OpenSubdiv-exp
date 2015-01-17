@@ -318,7 +318,7 @@ function evalGregory(indices, type, quadOffset, u, v)
         var valenceTableOffset = vertexID * (2*maxValence+1);
         var ivalence = valenceTable[valenceTableOffset];
         var valence = Math.abs(ivalence);
-        valences[vid] = valence;
+        valences[vid] = ivalence;
 
         // read vertexID
         pos = verts[vertexID];
@@ -420,12 +420,12 @@ function evalGregory(indices, type, quadOffset, u, v)
                     }
                 }
 
-                var k = valence - 1;  // k is the number of faces
-                var c = Math.cos(Math.PI/k);
-                var s = Math.sin(Math.PI/k);
-                var gamma = -(4.0*s)/(3.0*k + c);
-                var alpha_0k = -((1.0+2.0*c)*Math.sqrt(1.0+c))/((3.0*k+c)*Math.sqrt(1.0-c));
-                var beta_0 = s/(3.0*k + c);
+                var fk = valence - 1;  // k is the number of faces
+                var c = Math.cos(Math.PI/fk);
+                var s = Math.sin(Math.PI/fk);
+                var gamma = -(4.0*s)/(3.0*fk + c);
+                var alpha_0k = -((1.0+2.0*c)*Math.sqrt(1.0+c))/((3.0*fk+c)*Math.sqrt(1.0-c));
+                var beta_0 = s/(3.0*fk + c);
 
                 var idx_diagonal = valenceTable[valenceTableOffset + 2*zerothNeighbors[vid]  + 1 + 1];
                 idx_diagonal = Math.abs(idx_diagonal);
@@ -443,9 +443,9 @@ function evalGregory(indices, type, quadOffset, u, v)
 
                 for (var x = 1; x<valence - 1; ++x) {
                     var curri = ((x + zerothNeighbors[vid])%valence);
-                    var alpha = (4.0*Math.sin((Math.PI * x)/k))/(3.0*k+c);
-                    var beta = (Math.sin((Math.PI * x)/k)
-                                + Math.sin((Math.PI * (x+1))/k))/(3.0*k+c);
+                    var alpha = (4.0*Math.sin((Math.PI * x)/fk))/(3.0*fk+c);
+                    var beta = (Math.sin((Math.PI * x)/fk)
+                                + Math.sin((Math.PI * (x+1))/fk))/(3.0*fk+c);
 
                     var idx_neighbor = valenceTable[valenceTableOffset + 2*curri + 0 + 1];
                     idx_neighbor = Math.abs(idx_neighbor);
@@ -460,10 +460,10 @@ function evalGregory(indices, type, quadOffset, u, v)
                 for (var k = 0; k < 3; ++k) {
                     e1[vid][k] /= 3.0;
                 }
+
             }
         }
     }
-
     var Ep = [[],[],[],[]];
     var Em = [[],[],[],[]];
     var Fp = [[],[],[],[]];
@@ -516,7 +516,8 @@ function evalGregory(indices, type, quadOffset, u, v)
                         + e1[im][k]*csf(nm-3, 2*start_m + 1);
                 }
             }
-            if (valences[i] < 0) {
+
+            if (valences[vid] < 0) {
                 n = (n-1)*2;
             }
             if (valences[im] < 0) {
@@ -545,7 +546,6 @@ function evalGregory(indices, type, quadOffset, u, v)
                     Fm[vid][k] = (csf(nm-3,2)*opos[vid][k]
                                   + s3*Em[vid][k] + s2*Ep_im[k] - r[rp+prev][k])/3.0;
                 }
-                ///console.log(e0[vid], e1[vid], Ep[vid], Em[vid], Fp[vid], Fm[vid]);
             } else if (valences[vid] < -2) {
                 var jp = (ivalence + start - zerothNeighbors[vid]) % ivalence;
                 var jm = (ivalence + prev  - zerothNeighbors[vid]) % ivalence;
@@ -561,25 +561,25 @@ function evalGregory(indices, type, quadOffset, u, v)
                     Em[vid][k] = opos[vid][k]
                         + Math.cos((Math.PI*jm)/(ivalence-1))*e0[vid][k]
                         + Math.sin((Math.PI*jm)/(ivalence-1))*e1[vid][k];
-                    Fp[vid][k] = (csf(np-3,2)*opos[vid]
-                                  + s1*Ep[vid][k] + s2*Em_ip[k] + r[rp+start])/3.0;
-                    Fm[vid][k] = (csf(nm-3,2)*opos[vid]
-                                  + s3*Em[vid][k] + s2*Ep_im[k] - r[rp+prev])/3.0;
+                    Fp[vid][k] = (csf(np-3,2)*opos[vid][k]
+                                  + s1*Ep[vid][k] + s2*Em_ip[k] + r[rp+start][k])/3.0;
+                    Fm[vid][k] = (csf(nm-3,2)*opos[vid][k]
+                                  + s3*Em[vid][k] + s2*Ep_im[k] - r[rp+prev][k])/3.0;
                 }
 
                 if (valences[im] <0) {
-                    var s1 = 3-2*csf(n-3,2)-csf(np-3,2);
+                    s1 = 3-2*csf(n-3,2)-csf(np-3,2);
                     for (var k=0; k < 3; ++k){
                         Fp[vid][k] = Fm[vid][k] =
                             (csf(np-3,2)*opos[vid][k]
-                             + s1*Ep[vid][k] + s2*Em_ip[k] + r[rp+start])/3.0;
+                             + s1*Ep[vid][k] + s2*Em_ip[k] + r[rp+start][k])/3.0;
                     }
                 } else if (valences[ip] < 0) {
-                    var s1 = 3.0-2.0*Math.cos(2.0*Math.PI/n)-Math.cos(2.0*Math.PI/nm);
+                    s1 = 3.0-2.0*Math.cos(2.0*Math.PI/n)-Math.cos(2.0*Math.PI/nm);
                     for (var k=0; k < 3; ++k){
                         Fm[vid][k] = Fp[vid][k] =
                             (csf(nm-3,2)*opos[vid][k]
-                             + s1*Em[vid][k] + s2*Ep_im[k] - r[rp+prev])/3.0;
+                             + s1*Em[vid][k] + s2*Ep_im[k] - r[rp+prev][k])/3.0;
                     }
                 }
             } else if (valences[vid] == -2) {
@@ -591,7 +591,6 @@ function evalGregory(indices, type, quadOffset, u, v)
                          + 2.0 * org[ip][k] + 2.0 * org[im][k])/9.0;
                 }
             }
-
         } else {
             // no-boundary
             for (var k=0; k<3; ++k) {
@@ -1151,7 +1150,6 @@ $(function(){
     redraw();
     }
     */
-    //loadModel("cube.json");
-    loadModel("catmark_gregory_test1.json");
+    loadModel("cube.json");
 });
 
