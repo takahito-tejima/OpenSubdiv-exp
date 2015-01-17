@@ -45,6 +45,8 @@
       // normal = normalize(inNormal.xyz);
         uv = inUV;
         gl_Position = projMatrix * vec4(p, 1);
+
+      gl_PointSize = 5.0;
       }
     </script>
     <script id="fshader" type="x-shader/x-fragment">
@@ -115,7 +117,11 @@
       <option value="cube" selected>cube</option>
       <option value="catmark_cube_creases0">catmark_cube_creases0</option>
       <option value="catmark_cube_creases2">catmark_cube_creases2</option>
-      <option value="catmark_dart_edgeconrner">catmark_dart_edgecorner</option>
+      <option value="catmark_dart_edgecorner">catmark_dart_edgecorner</option>
+      <option value="catmark_gregory_test1">catmark_gregory_test1</option>
+      <option value="catmark_gregory_test2">catmark_gregory_test2</option>
+      <option value="catmark_gregory_test3">catmark_gregory_test3</option>
+      <option value="catmark_gregory_test4">catmark_gregory_test4</option>
       <option value="catmark_torus_creases0">catmark_torus_creases0</option>
       <option value="catmark_helmet">catmark_helmet</option>
       <option value="catmark_car">catmark_car</option>
@@ -131,8 +137,8 @@
 
     Display style
     <div id="radio">
-      <input type="radio" id="displayShade" name="radio" checked="checked"><label for="displayShade">Shade</label>
-      <input type="radio" id="displayWire" name="radio"><label for="displayWire">Wire</label>
+      <input type="radio" id="displayShade" name="radio"><label for="displayShade">Shade</label>
+      <input type="radio" id="displayWire" name="radio" checked="checked"><label for="displayWire">Wire</label>
       <input type="radio" id="displayNormal" name="radio"><label for="displayNormal">Normal</label>
       <input type="radio" id="displayPatch" name="radio"><label for="displayPatch">Patch</label>
     </div>

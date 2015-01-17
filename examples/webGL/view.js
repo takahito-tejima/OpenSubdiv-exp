@@ -20,7 +20,7 @@ var program = null;
 var interval = null;
 var framebuffer = null;
 
-var displayMode = 0;
+var displayMode = 1;
 
 
 var tessFactor = 1;
@@ -271,6 +271,10 @@ function setModel(data) {
     model.patches = data.patches;
     model.patchParams = data.patchParams;
 
+    model.maxValence = data.maxValence;
+    model.valenceTable = data.vertexValences;
+    model.quadOffsets = data.quadOffsets;
+
     fit();
 
     updateGeom();
@@ -320,6 +324,24 @@ function refine() {
     }
 }
 
+function evalCubicBezier(u, B, BU) {
+    var t = u;
+    var s = 1 - u;
+
+    var A0 = s * s;
+    var A1 = 2 * s * t;
+    var A2 = t * t;
+
+    B[0] = s * A0;
+    B[1] = t * A0 + s * A1;
+    B[2] = t * A1 + s * A2;
+    B[3] = t * A2;
+    BU[0] =    - A0;
+    BU[1] = A0 - A1;
+    BU[2] = A1 - A2;
+    BU[3] = A2;
+}
+
 function evalCubicBSpline(u, B, BU) {
     var t = u;
     var s = 1 - u;
@@ -334,6 +356,223 @@ function evalCubicBSpline(u, B, BU) {
     BU[1] = A0 - A1;
     BU[2] = A1 - A2;
     BU[3] = A2;
+}
+
+function csf(n, j)
+{
+    if (j%2 == 0) {
+        return Math.cos((2.0 * Math.PI * ((j-0)/2.0))/(n + 3.0));
+    } else {
+        return Math.sin((2.0 * Math.PI * ((j-1)/2.0))/(n + 3.0));
+    }
+}
+
+function evalGregory(indices, quadOffset, u, v) {
+
+    var valences = [];
+    var maxValence = model.maxValence;
+
+    var ef_small = [0.813008, 0.500000, 0.363636, 0.287505,
+                    0.238692, 0.204549, 0.179211];
+
+    var r = [], rp, e0 = [], e1 = [];
+    //float  *r  = (float*)alloca((maxValence+2)*4*length*sizeof(float)), *rp,
+        //*e0 = r + maxValence*4*length,
+        //*e1 = e0 + 4*length;
+
+    //for (var i = 0; i < (maxValence+2)*4; ++i) r[i] = [0,0,0];
+
+    var f = [], pos, opos = [];
+    var valenceTable = model.valenceTable;
+    var quadOffsets = model.quadOffsets;
+    var verts = model.patchVerts;
+
+    for (var vid=0; vid < 4; ++vid) {
+        var vertexID = indices[vid];
+        var valenceTableOffset = vertexID * (2*maxValence+1);
+        var valence = valenceTable[valenceTableOffset];
+        valences[vid] = valence;
+
+        // read vertexID
+        pos = verts[vertexID];
+
+        //rp=r+vid*maxValence*length;
+        rp = vid*maxValence;
+        //var vofs = vid;
+        opos[vid] = [0,0,0];
+
+        for (var i=0; i<valence; ++i) {
+            var im = (i+valence-1)%valence;
+            var ip = (i+1)%valence;
+
+            var idx_neighbor   = valenceTable[valenceTableOffset + 2*i  + 0 + 1];
+            var idx_diagonal   = valenceTable[valenceTableOffset + 2*i  + 1 + 1];
+            var idx_neighbor_p = valenceTable[valenceTableOffset + 2*ip + 0 + 1];
+            var idx_neighbor_m = valenceTable[valenceTableOffset + 2*im + 0 + 1];
+            var idx_diagonal_m = valenceTable[valenceTableOffset + 2*im + 1 + 1];
+
+            var neighbor   = verts[idx_neighbor];
+            var diagonal   = verts[idx_diagonal];
+            var neighbor_p = verts[idx_neighbor_p];
+            var neighbor_m = verts[idx_neighbor_m];
+            var diagonal_m = verts[idx_diagonal_m];
+
+            //float  *fp = f+i*3;
+            f[i] = [0,0,0];
+            //r[rp] = [0,0,0];
+            r[rp+i] = [0,0,0];
+            for (var k=0; k<3; ++k) {
+                f[i][k] = (pos[k]*valence
+                           + (neighbor_p[k]+neighbor[k])*2.0
+                           + diagonal[k])/(valence+5.0);
+
+                opos[vid][k] += f[i][k];
+                r[rp+i][k] =(neighbor_p[k]-neighbor_m[k])/3.0
+                    + (diagonal[k]-diagonal_m[k])/6.0;
+            }
+        }
+
+        // average opos
+        for (var k=0; k<3; ++k) {
+            opos[vid][k] /= valence;
+        }
+
+        // compute e0, e1
+        e0[vid] = [0,0,0];
+        e1[vid] = [0,0,0];
+        for (var i=0; i<valence; ++i) {
+            var im = (i+valence-1)%valence;
+            for (var k=0; k<3; ++k) {
+                var e = 0.5*(f[i][k] + f[im][k]);
+                e0[vid][k] += csf(valence-3, 2*i) * e;
+                e1[vid][k] += csf(valence-3, 2*i+1) * e;
+            }
+        }
+        for (var k=0; k<3; ++k) {
+            e0[vid][k] *= ef_small[valence-3];
+            e1[vid][k] *= ef_small[valence-3];
+        }
+    }
+
+    var Ep = [[],[],[],[]];
+    var Em = [[],[],[],[]];
+    var Fp = [[],[],[],[]];
+    var Fm = [[],[],[],[]];
+
+    for (var vid=0; vid<4; ++vid) {
+        var ip = (vid+1)%4;
+        var im = (vid+3)%4;
+        var n = valences[vid];
+
+        var start = quadOffsets[quadOffset + vid] & 0x00ff;
+        var prev = (quadOffsets[quadOffset + vid] & 0xff00) / 256;
+
+        for (var k=0; k<3; ++k) {
+            Ep[vid][k] = opos[vid][k] + e0[vid][k] * csf(n-3, 2*start)
+                + e1[vid][k]*csf(n-3, 2*start +1);
+            Em[vid][k] = opos[vid][k] + e0[vid][k] * csf(n-3, 2*prev )
+                + e1[vid][k]*csf(n-3, 2*prev + 1);
+        }
+
+        var np = valences[ip];
+        var nm = valences[im];
+
+        var prev_p = (quadOffsets[quadOffset + ip] & 0xff00) / 256;
+        var start_m = quadOffsets[quadOffset + im] & 0x00ff;
+
+        var Em_ip = [0,0,0];
+        var Ep_im = [0,0,0];
+
+        for (var k=0; k<3; ++k) {
+            Em_ip[k] = opos[ip][k] + e0[ip][k]*csf(np-3, 2*prev_p)
+                + e1[ip][k]*csf(np-3, 2*prev_p+1);
+            Ep_im[k] = opos[im][k] + e0[im][k]*csf(nm-3, 2*start_m)
+                + e1[im][k]*csf(nm-3, 2*start_m+1);
+        }
+
+        var s1 = 3.0 - 2.0*csf(n-3,2)-csf(np-3,2);
+        var s2 = 2.0 * csf(n-3,2);
+        var s3 = 3.0 - 2.0*Math.cos(2.0*Math.PI/n) - Math.cos(2.0*Math.PI/nm);
+
+        rp = vid*maxValence;
+        for (var k=0; k<3; ++k) {
+            Fp[vid][k] = (csf(np-3,2)*opos[vid][k]
+                          + s1*Ep[vid][k] + s2*Em_ip[k] + r[rp+start][k])/3.0;
+            Fm[vid][k] = (csf(nm-3,2)*opos[vid][k]
+                          + s3*Em[vid][k] + s2*Ep_im[k] - r[rp+prev][k])/3.0;
+        }
+    }
+
+    var p = [];
+    for (var i=0; i<4; ++i) {
+        p[i*5+0] = opos[i];
+        p[i*5+1] =   Ep[i];
+        p[i*5+2] =   Em[i];
+        p[i*5+3] =   Fp[i];
+        p[i*5+4] =   Fm[i];
+    }
+
+    var U = 1-u, V=1-v;
+    var d11 = u+v; if(u+v==0.0) d11 = 1.0;
+    var d12 = U+v; if(U+v==0.0) d12 = 1.0;
+    var d21 = u+V; if(u+V==0.0) d21 = 1.0;
+    var d22 = U+V; if(U+V==0.0) d22 = 1.0;
+
+    var q = [];
+    for (var i= 0; i<16; ++i) q[i] = [0,0,0];
+    for (var k=0; k<3; ++k) {
+        q[ 5][k] = (u*p[ 3][k] + v*p[ 4][k])/d11;
+        q[ 6][k] = (U*p[ 9][k] + v*p[ 8][k])/d12;
+        q[ 9][k] = (u*p[19][k] + V*p[18][k])/d21;
+        q[10][k] = (U*p[13][k] + V*p[14][k])/d22;
+
+        q[ 0][k] = p[ 0][k];
+        q[ 1][k] = p[ 1][k];
+        q[ 2][k] = p[ 7][k];
+        q[ 3][k] = p[ 5][k];
+        q[ 4][k] = p[ 2][k];
+        q[ 7][k] = p[ 6][k];
+        q[ 8][k] = p[16][k];
+        q[11][k] = p[12][k];
+        q[12][k] = p[15][k];
+        q[13][k] = p[17][k];
+        q[14][k] = p[11][k];
+        q[15][k] = p[10][k];
+    }
+
+    // bezier evaluation
+
+    B = [0, 0, 0, 0];
+    D = [0, 0, 0, 0];
+    BU = [[0,0,0], [0,0,0], [0,0,0], [0,0,0]];
+    DU = [[0,0,0], [0,0,0], [0,0,0], [0,0,0]];
+
+    evalCubicBezier(u, B, D);
+    for (var i = 0; i < 4; i++) {
+        for(var j=0;j<4;j++){
+            for(var k=0; k<3; k++){
+                BU[i][k] += q[i+j*4][k] * B[j];
+                DU[i][k] += q[i+j*4][k] * D[j];
+            }
+        }
+    }
+    evalCubicBezier(v, B, D);
+
+    Q = [0, 0, 0];
+    QU = [0, 0, 0];
+    QV = [0, 0, 0];
+    for(var i=0;i<4; i++){
+        for (var k=0; k<3; k++) {
+            Q[k] += BU[i][k] * B[i];
+            QU[k] += DU[i][k] * B[i];
+            QV[k] += BU[i][k] * D[i];
+        }
+    }
+    N = [QU[1]*QV[2]-QU[2]*QV[1],
+         QU[2]*QV[0]-QU[0]*QV[2],
+         QU[0]*QV[1]-QU[1]*QV[0]];
+
+    return [Q[0], Q[1], Q[2], -N[0], -N[1], -N[2]];
 }
 
 function evalBSpline(indices, u, v) {
@@ -409,11 +648,13 @@ function tessellate() {
     var indices = [];
     var vid = 0;
     for (var i = 0; i < model.patches.length; i++) {
-        if (model.patches[i].length != 16) continue;
+        var ncp = model.patches[i].length;
+        if (ncp == 9 || ncp == 12) continue;  // boundary, corner patch
 
         if (i >= model.patchParams.length) continue;
         var p = model.patchParams[i];
         if (p ==null) continue;
+
         var level = 1 + tessFactor - p[0];
         if (level < 0) level = 0;
         var div = (1 << level) + 1;
@@ -422,7 +663,12 @@ function tessellate() {
             for (iv = 0; iv < div; iv++) {
                 var u = iu/(div-1);
                 var v = iv/(div-1);
-                pn = evalBSpline(model.patches[i], u, v);
+                if (ncp == 4) {
+                    var quadOffset = i*4;
+                    pn = evalGregory(model.patches[i], quadOffset, u, v);
+                } else {
+                    pn = evalBSpline(model.patches[i], u, v);
+                }
                 points.push(pn[0]);
                 points.push(pn[1]);
                 points.push(pn[2]);
@@ -557,6 +803,7 @@ function redraw() {
         gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 10*4, 3*4); // normal
         gl.vertexAttribPointer(2, 4, gl.FLOAT, false, 10*4, 6*4); // uv, iuiv
 
+        //gl.drawElements(gl.POINTS, batch.nTris*3, gl.UNSIGNED_SHORT, 0);
         gl.drawElements(gl.TRIANGLES, batch.nTris*3, gl.UNSIGNED_SHORT, 0);
 
         drawTris += batch.nTris;
