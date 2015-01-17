@@ -290,8 +290,9 @@ function csf(n, j)
     }
 }
 
-function evalGregory(indices, quadOffset, u, v) {
-
+function evalGregory(indices, type, quadOffset, u, v)
+{
+    var boundary = (type == 11)
     var valences = [];
     var maxValence = model.maxValence;
 
@@ -304,15 +305,24 @@ function evalGregory(indices, quadOffset, u, v) {
     var valenceTable = model.valenceTable;
     var quadOffsets = model.quadOffsets;
     var verts = model.patchVerts;
+    var zerothNeighbors = [];
+    var org = [];
 
     for (var vid=0; vid < 4; ++vid) {
+        var boundaryEdgeNeighbors = [-1,-1];
+        var currNeighbor = 0;
+        var ibefore = 0;
+        zerothNeighbors[vid] = 0;
+
         var vertexID = indices[vid];
         var valenceTableOffset = vertexID * (2*maxValence+1);
-        var valence = valenceTable[valenceTableOffset];
+        var ivalence = valenceTable[valenceTableOffset];
+        var valence = Math.abs(ivalence);
         valences[vid] = valence;
 
         // read vertexID
         pos = verts[vertexID];
+        org[vid] = [pos[0], pos[1], pos[2]];
 
         //rp=r+vid*maxValence*length;
         rp = vid*maxValence;
@@ -334,6 +344,28 @@ function evalGregory(indices, quadOffset, u, v) {
             var neighbor_p = verts[idx_neighbor_p];
             var neighbor_m = verts[idx_neighbor_m];
             var diagonal_m = verts[idx_diagonal_m];
+
+            if (boundary) {
+                var valenceNeighbor = valenceTable[idx_neighbor * (2*maxValence+1)];
+                if (valenceNeighbor < 0) {
+                    if (currNeighbor < 2) {
+                        boundaryEdgeNeighbors[currNeighbor++] = idx_neighbor;
+                    }
+
+                    if (currNeighbor == 1) {
+                        ibefore = i;
+                        zerothNeighbors[vid] = i;
+                    } else {
+                        if (i - ibefore == 1) {
+                            var tmp = boundaryEdgeNeighbors[0];
+                            boundaryEdgeNeighbors[0] = boundaryEdgeNeighbors[1];
+                            boundaryEdgeNeighbors[1] = tmp;
+                            zerothNeighbors[vid] = i;
+                        }
+                    }
+                    //boundary = false;
+                }
+            }
 
             //float  *fp = f+i*3;
             f[i] = [0,0,0];
@@ -370,6 +402,66 @@ function evalGregory(indices, quadOffset, u, v) {
             e0[vid][k] *= ef_small[valence-3];
             e1[vid][k] *= ef_small[valence-3];
         }
+
+        if (boundary) {
+
+            if (currNeighbor == 1) {
+                boundaryEdgeNeighbors[1] = boundaryEdgeNeighbors[0];
+            }
+
+            if (ivalence < 0) {
+                for (var k = 0; k < 3; ++k) {
+                    if (valence > 2) {
+                        opos[vid][k] = (verts[boundaryEdgeNeighbors[0]][k]
+                                        + verts[boundaryEdgeNeighbors[1]][k] +
+                                   4 * pos[k])/6.0;
+                    } else {
+                        opos[vid][k] = pos[k];
+                    }
+                }
+
+                var k = valence - 1;  // k is the number of faces
+                var c = Math.cos(Math.PI/k);
+                var s = Math.sin(Math.PI/k);
+                var gamma = -(4.0*s)/(3.0*k + c);
+                var alpha_0k = -((1.0+2.0*c)*Math.sqrt(1.0+c))/((3.0*k+c)*Math.sqrt(1.0-c));
+                var beta_0 = s/(3.0*k + c);
+
+                var idx_diagonal = valenceTable[valenceTableOffset + 2*zerothNeighbors[vid]  + 1 + 1];
+                idx_diagonal = Math.abs(idx_diagonal);
+
+                var diagonal   = verts[idx_diagonal];
+
+                for (var k = 0; k < 3; ++k) {
+                    e0[vid][k] = (verts[boundaryEdgeNeighbors[0]][k] -
+                                  verts[boundaryEdgeNeighbors[1]][k])/6.0;
+                    e1[vid][k] = gamma * pos[k]
+                        + alpha_0k * verts[boundaryEdgeNeighbors[0]][k]
+                        + alpha_0k * verts[boundaryEdgeNeighbors[1]][k]
+                        + beta_0 * diagonal[k];
+                }
+
+                for (var x = 1; x<valence - 1; ++x) {
+                    var curri = ((x + zerothNeighbors[vid])%valence);
+                    var alpha = (4.0*Math.sin((Math.PI * x)/k))/(3.0*k+c);
+                    var beta = (Math.sin((Math.PI * x)/k)
+                                + Math.sin((Math.PI * (x+1))/k))/(3.0*k+c);
+
+                    var idx_neighbor = valenceTable[valenceTableOffset + 2*curri + 0 + 1];
+                    idx_neighbor = Math.abs(idx_neighbor);
+                    var neighbor = verts[idx_neighbor];
+                    idx_diagonal = valenceTable[valenceTableOffset + 2*curri + 1 + 1];
+                    var diagonal = verts[idx_diagonal];
+
+                    for (var k = 0; k < 3; ++k) {
+                        e1[vid][k] += alpha * neighbor[k] + beta * diagonal[k];
+                    }
+                }
+                for (var k = 0; k < 3; ++k) {
+                    e1[vid][k] /= 3.0;
+                }
+            }
+        }
     }
 
     var Ep = [[],[],[],[]];
@@ -380,44 +472,159 @@ function evalGregory(indices, quadOffset, u, v) {
     for (var vid=0; vid<4; ++vid) {
         var ip = (vid+1)%4;
         var im = (vid+3)%4;
-        var n = valences[vid];
+        var n = Math.abs(valences[vid]); // ???
+        var ivalence = n;
 
         var start = quadOffsets[quadOffset + vid] & 0x00ff;
         var prev = (quadOffsets[quadOffset + vid] & 0xff00) / 256;
 
-        for (var k=0; k<3; ++k) {
-            Ep[vid][k] = opos[vid][k] + e0[vid][k] * csf(n-3, 2*start)
-                + e1[vid][k]*csf(n-3, 2*start +1);
-            Em[vid][k] = opos[vid][k] + e0[vid][k] * csf(n-3, 2*prev )
-                + e1[vid][k]*csf(n-3, 2*prev + 1);
-        }
+        var np = Math.abs(valences[ip]);
+        var nm = Math.abs(valences[im]);
 
-        var np = valences[ip];
-        var nm = valences[im];
-
-        var prev_p = (quadOffsets[quadOffset + ip] & 0xff00) / 256;
         var start_m = quadOffsets[quadOffset + im] & 0x00ff;
+        var prev_p  = (quadOffsets[quadOffset + ip] & 0xff00) / 256;
 
-        var Em_ip = [0,0,0];
-        var Ep_im = [0,0,0];
+        if (boundary) {
+            var Em_ip = [0,0,0];
+            var Ep_im = [0,0,0];
+            if (valences[ip] < -2) {
+                var j = (np + prev_p - zerothNeighbors[ip]) % np;
+                for (var k=0; k < 3; ++k) {
+                    Em_ip[k] = opos[ip][k]
+                        + Math.cos((Math.PI*j)/(np-1))*e0[ip][k]
+                        + Math.sin((Math.PI*j)/(np-1))*e1[ip][k];
+                }
+            } else {
+                for (var k=0; k < 3; ++k) {
+                    Em_ip[k] = opos[ip][k]
+                        + e0[ip][k]*csf(np-3, 2*prev_p)
+                        + e1[ip][k]*csf(np-3, 2*prev_p + 1);
+                }
+            }
 
-        for (var k=0; k<3; ++k) {
-            Em_ip[k] = opos[ip][k] + e0[ip][k]*csf(np-3, 2*prev_p)
-                + e1[ip][k]*csf(np-3, 2*prev_p+1);
-            Ep_im[k] = opos[im][k] + e0[im][k]*csf(nm-3, 2*start_m)
-                + e1[im][k]*csf(nm-3, 2*start_m+1);
-        }
+            if (valences[im] < -2) {
+                var j = (nm + start_m - zerothNeighbors[im]) % nm;
+                for (var k=0; k < 3; ++k) {
+                    Ep_im[k] = opos[im][k]
+                        + Math.cos((Math.PI*j)/(nm-1))*e0[im][k]
+                        + Math.sin((Math.PI*j)/(nm-1))*e1[im][k];
+                }
+            } else {
+                for (var k = 0; k < 3; ++k) {
+                    Ep_im[k] = opos[im][k]
+                        + e0[im][k]*csf(nm-3, 2*start_m)
+                        + e1[im][k]*csf(nm-3, 2*start_m + 1);
+                }
+            }
+            if (valences[i] < 0) {
+                n = (n-1)*2;
+            }
+            if (valences[im] < 0) {
+                nm = (nm-1)*2;
+            }
+            if (valences[ip] < 0) {
+                np = (np-1)*2;
+            }
+            rp = vid*maxValence;
 
-        var s1 = 3.0 - 2.0*csf(n-3,2)-csf(np-3,2);
-        var s2 = 2.0 * csf(n-3,2);
-        var s3 = 3.0 - 2.0*Math.cos(2.0*Math.PI/n) - Math.cos(2.0*Math.PI/nm);
+            if (valences[vid] > 2) {
+                var s1 = 3.0 - 2.0*csf(n-3,2)-csf(np-3,2);
+                var s2 = 2.0*csf(n-3,2);
+                var s3 = 3.0 - 2.0*Math.cos(2.0*Math.PI/n) - Math.cos(2.0*Math.PI/nm);
 
-        rp = vid*maxValence;
-        for (var k=0; k<3; ++k) {
-            Fp[vid][k] = (csf(np-3,2)*opos[vid][k]
-                          + s1*Ep[vid][k] + s2*Em_ip[k] + r[rp+start][k])/3.0;
-            Fm[vid][k] = (csf(nm-3,2)*opos[vid][k]
-                          + s3*Em[vid][k] + s2*Ep_im[k] - r[rp+prev][k])/3.0;
+                for (var k=0; k <3; ++k) {
+                    Ep[vid][k] = opos[vid][k]
+                        + e0[vid][k]*csf(n-3, 2*start)
+                        + e1[vid][k]*csf(n-3, 2*start + 1);
+                    Em[vid][k] = opos[vid][k]
+                        + e0[vid][k]*csf(n-3, 2*prev)
+                        + e1[vid][k]*csf(n-3, 2*prev + 1);
+
+                    Fp[vid][k] = (csf(np-3,2)*opos[vid][k]
+                                  + s1*Ep[vid][k] + s2*Em_ip[k] + r[rp+start][k])/3.0;
+                    Fm[vid][k] = (csf(nm-3,2)*opos[vid][k]
+                                  + s3*Em[vid][k] + s2*Ep_im[k] - r[rp+prev][k])/3.0;
+                }
+                ///console.log(e0[vid], e1[vid], Ep[vid], Em[vid], Fp[vid], Fm[vid]);
+            } else if (valences[vid] < -2) {
+                var jp = (ivalence + start - zerothNeighbors[vid]) % ivalence;
+                var jm = (ivalence + prev  - zerothNeighbors[vid]) % ivalence;
+
+                var s1 = 3-2*csf(n-3,2)-csf(np-3,2);
+                var s2 = 2*csf(n-3,2);
+                var s3 = 3.0-2.0*Math.cos(2.0*Math.PI/n)-Math.cos(2.0*Math.PI/nm);
+
+                for (var k=0; k < 3; ++k){
+                    Ep[vid][k] = opos[vid][k]
+                        + Math.cos((Math.PI*jp)/(ivalence-1))*e0[vid][k]
+                        + Math.sin((Math.PI*jp)/(ivalence-1))*e1[vid][k];
+                    Em[vid][k] = opos[vid][k]
+                        + Math.cos((Math.PI*jm)/(ivalence-1))*e0[vid][k]
+                        + Math.sin((Math.PI*jm)/(ivalence-1))*e1[vid][k];
+                    Fp[vid][k] = (csf(np-3,2)*opos[vid]
+                                  + s1*Ep[vid][k] + s2*Em_ip[k] + r[rp+start])/3.0;
+                    Fm[vid][k] = (csf(nm-3,2)*opos[vid]
+                                  + s3*Em[vid][k] + s2*Ep_im[k] - r[rp+prev])/3.0;
+                }
+
+                if (valences[im] <0) {
+                    var s1 = 3-2*csf(n-3,2)-csf(np-3,2);
+                    for (var k=0; k < 3; ++k){
+                        Fp[vid][k] = Fm[vid][k] =
+                            (csf(np-3,2)*opos[vid][k]
+                             + s1*Ep[vid][k] + s2*Em_ip[k] + r[rp+start])/3.0;
+                    }
+                } else if (valences[ip] < 0) {
+                    var s1 = 3.0-2.0*Math.cos(2.0*Math.PI/n)-Math.cos(2.0*Math.PI/nm);
+                    for (var k=0; k < 3; ++k){
+                        Fm[vid][k] = Fp[vid][k] =
+                            (csf(nm-3,2)*opos[vid][k]
+                             + s1*Em[vid][k] + s2*Ep_im[k] - r[rp+prev])/3.0;
+                    }
+                }
+            } else if (valences[vid] == -2) {
+                for (var k=0; k < 3; ++k){
+                    Ep[vid][k] = (2.0 * org[vid][k] + org[ip][k])/3.0;
+                    Em[vid][k] = (2.0 * org[vid][k] + org[im][k])/3.0;
+                    Fp[vid][k] = Fm[vid][k] =
+                        (4.0 * org[vid][k] + org[(vid+2)%n][k]
+                         + 2.0 * org[ip][k] + 2.0 * org[im][k])/9.0;
+                }
+            }
+
+        } else {
+            // no-boundary
+            for (var k=0; k<3; ++k) {
+                Ep[vid][k] = opos[vid][k] + e0[vid][k] * csf(n-3, 2*start)
+                    + e1[vid][k]*csf(n-3, 2*start +1);
+                Em[vid][k] = opos[vid][k] + e0[vid][k] * csf(n-3, 2*prev )
+                    + e1[vid][k]*csf(n-3, 2*prev + 1);
+            }
+
+            var prev_p = (quadOffsets[quadOffset + ip] & 0xff00) / 256;
+            var start_m = quadOffsets[quadOffset + im] & 0x00ff;
+
+            var Em_ip = [0,0,0];
+            var Ep_im = [0,0,0];
+
+            for (var k=0; k<3; ++k) {
+                Em_ip[k] = opos[ip][k] + e0[ip][k]*csf(np-3, 2*prev_p)
+                    + e1[ip][k]*csf(np-3, 2*prev_p+1);
+                Ep_im[k] = opos[im][k] + e0[im][k]*csf(nm-3, 2*start_m)
+                    + e1[im][k]*csf(nm-3, 2*start_m+1);
+            }
+
+            var s1 = 3.0 - 2.0*csf(n-3,2)-csf(np-3,2);
+            var s2 = 2.0 * csf(n-3,2);
+            var s3 = 3.0 - 2.0*Math.cos(2.0*Math.PI/n) - Math.cos(2.0*Math.PI/nm);
+
+            rp = vid*maxValence;
+            for (var k=0; k<3; ++k) {
+                Fp[vid][k] = (csf(np-3,2)*opos[vid][k]
+                              + s1*Ep[vid][k] + s2*Em_ip[k] + r[rp+start][k])/3.0;
+                Fm[vid][k] = (csf(nm-3,2)*opos[vid][k]
+                              + s3*Em[vid][k] + s2*Ep_im[k] - r[rp+prev][k])/3.0;
+            }
         }
     }
 
@@ -493,28 +700,71 @@ function evalGregory(indices, quadOffset, u, v) {
     return [Q[0], Q[1], Q[2], -N[0], -N[1], -N[2]];
 }
 
-function evalBSpline(indices, u, v) {
+function evalBSpline(indices, u, v)
+{
+    var B = [0, 0, 0, 0];
+    var D = [0, 0, 0, 0];
+    var BU = [[0,0,0], [0,0,0], [0,0,0], [0,0,0]];
+    var DU = [[0,0,0], [0,0,0], [0,0,0], [0,0,0]];
 
-    B = [0, 0, 0, 0];
-    D = [0, 0, 0, 0];
-    BU = [[0,0,0], [0,0,0], [0,0,0], [0,0,0]];
-    DU = [[0,0,0], [0,0,0], [0,0,0], [0,0,0]];
+    var verts = new Array(16);
+    var border = (indices.length == 12);
+    var corner = (indices.length == 9);
+    var vofs = (border || corner) ? 4 : 0;
+    for (var i = 0; i < indices.length; ++i) {
+        verts[i+vofs] = model.patchVerts[indices[i]];
+    }
+    if (border) {
+        verts[0] = [];
+        verts[1] = [];
+        verts[2] = [];
+        verts[3] = [];
+        for (var k = 0; k < 3; ++k) {
+            verts[0][k] = 2*verts[4][k] - verts[8][k];
+            verts[1][k] = 2*verts[5][k] - verts[9][k];
+            verts[2][k] = 2*verts[6][k] - verts[10][k];
+            verts[3][k] = 2*verts[7][k] - verts[11][k];
+        }
+    } else if (corner) {
+        verts[15] = [];
+        verts[14] = verts[12];
+        verts[13] = verts[11];
+        verts[12] = verts[10];
+        verts[11] = [];
+        verts[10] = verts[9];
+        verts[9] = verts[8];
+        verts[8] = verts[7];
+        verts[7] = [];
+        verts[0] = [];
+        verts[1] = [];
+        verts[2] = [];
+        verts[3] = [];
+        for (var k = 0; k < 3; ++k) {
+            verts[0][k] = 2*verts[4][k] - verts[8][k];
+            verts[1][k] = 2*verts[5][k] - verts[9][k];
+            verts[2][k] = 2*verts[6][k] - verts[10][k];
+            verts[3][k] = 2*verts[6][k] - verts[9][k];
+            verts[7][k] = 2*verts[6][k] - verts[5][k];
+            verts[11][k] = 2*verts[10][k] - verts[9][k];
+            verts[15][k] = 2*verts[14][k] - verts[13][k];
+        }
+    }
 
     evalCubicBSpline(u, B, D);
     for (var i = 0; i < 4; i++) {
-        for(var j=0;j<4;j++){
+        for(var j=0;j < 4;j++){
             var vid = indices[i+j*4];
             for(var k=0; k<3; k++){
-                BU[i][k] += model.patchVerts[vid][k] * B[j];
-                DU[i][k] += model.patchVerts[vid][k] * D[j];
+                BU[i][k] += verts[i+j*4][k] * B[j];
+                DU[i][k] += verts[i+j*4][k] * D[j];
             }
         }
     }
     evalCubicBSpline(v, B, D);
 
-    Q = [0, 0, 0];
-    QU = [0, 0, 0];
-    QV = [0, 0, 0];
+    var Q = [0, 0, 0];
+    var QU = [0, 0, 0];
+    var QV = [0, 0, 0];
     for(var i=0;i<4; i++){
         for (var k=0; k<3; k++) {
             Q[k] += BU[i][k] * B[i];
@@ -522,9 +772,9 @@ function evalBSpline(indices, u, v) {
             QV[k] += BU[i][k] * D[i];
         }
     }
-    N = [QU[1]*QV[2]-QU[2]*QV[1],
-         QU[2]*QV[0]-QU[0]*QV[2],
-         QU[0]*QV[1]-QU[1]*QV[0]];
+    var N = [QU[1]*QV[2]-QU[2]*QV[1],
+             QU[2]*QV[0]-QU[0]*QV[2],
+             QU[0]*QV[1]-QU[1]*QV[0]];
     return [Q[0], Q[1], Q[2], -N[0], -N[1], -N[2]];
 }
 
@@ -568,13 +818,12 @@ function tessellate() {
     var quadOffset = 0;
     for (var i = 0; i < model.patches.length; i++) {
         var ncp = model.patches[i].length;
-        if (ncp == 9 || ncp == 12) continue;  // boundary, corner patch
 
         if (i >= model.patchParams.length) continue;
         var p = model.patchParams[i];
         if (p ==null) continue;
 
-        var level = 1 + tessFactor - p[0];
+        var level = 1 + tessFactor - p[0]/*depth*/;
         if (level < 0) level = 0;
         var div = (1 << level) + 1;
         var vbegin = vid;
@@ -583,7 +832,7 @@ function tessellate() {
                 var u = iu/(div-1);
                 var v = iv/(div-1);
                 if (ncp == 4) {
-                    pn = evalGregory(model.patches[i], quadOffset, u, v);
+                    pn = evalGregory(model.patches[i], p[2], quadOffset, u, v);
                 } else {
                     pn = evalBSpline(model.patches[i], u, v);
                 }
@@ -802,7 +1051,7 @@ $(function(){
                 if(camera.ry < -90) camera.ry = -90;
             }
             else if(button == 3){
-                camera.dolly -= d[0];
+                camera.dolly -= 0.01*d[0];
                 if (camera.dolly < 0.1) camera.dolly = 0.001;
             }
             redraw();
@@ -902,6 +1151,7 @@ $(function(){
     redraw();
     }
     */
-    loadModel("cube.json");
+    //loadModel("cube.json");
+    loadModel("catmark_gregory_test1.json");
 });
 
