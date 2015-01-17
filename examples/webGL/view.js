@@ -840,6 +840,65 @@ function appendVBO(points, indices)
     model.batches.push(batch);
 }
 
+function addPoints(points, pn, u, v, iu, iv, color)
+{
+    points.push(pn[0]);
+    points.push(pn[1]);
+    points.push(pn[2]);
+    points.push(pn[3]);
+    points.push(pn[4]);
+    points.push(pn[5]);
+    points.push(u);
+    points.push(v);
+    points.push(iu);
+    points.push(iv);
+    points.push(color[0]);
+    points.push(color[1]);
+    points.push(color[2]);
+}
+
+function getTransitionParams(pattern, rotation)
+{
+//    pattern0        pattern1       pattern2        pattern3        pattern4
+// +-------------+ +-------------+ +-------------+ +-------------+ +-------------+
+// |     /\\     | | 0   /\\   2 | |             | |      |      | |      |      |
+// | 1  /  \\  2 | |    /   \\   | |      0      | |  1   |  0   | |      |      |
+// |   /    \\   | |   /  3   \\ | |-------------| |------|------| |  1   |   0  |
+// |  /      \\  | |  /       /  | |\\    3    / | |      |      | |      |      |
+// | /    0   \\ | | /    /    1 | |  \\     /   | |  3   |  2   | |      |      |
+// |/          \\| |/ /          | | 1  \\ /   2 | |      |      | |      |      |
+// +-------------+ +-------------+ +-------------+ +-------------+ +-------------+
+    if (pattern == 0) {
+        var p = [
+            [[1,0],[0,0.5],[1,1],[1,0],[0, 0],[0,0.5],[1,1],[0,0.5],[0,1]],  // OK
+            [[1,1],[0.5,0],[0,1],[1,1],[1, 0],[0.5,0],[0,1],[0.5,0],[0,0]],
+            [[0,1],[1,0.5],[0,0],[0,1],[1, 1],[1,0.5],[0,0],[1,0.5],[1,0]],  // OK
+            [[0,0],[0.5,1],[1,0],[0,0],[0, 1],[0.5,1],[1,0],[0.5,1],[1,1]]];
+        return p[rotation];
+    } else if (pattern == 1){
+        var p = [
+            [[1,1],[1,0],[0.5,0],[1,1],[0,0.5],[0,1],[0,0.5],[0.5,0],[0,0],[1,1],[0.5,0],[0,0.5]], // OK
+            [[0,1],[1,1],[1,0.5],[0,1],[0.5,0],[0,0],[0.5,0],[1,0.5],[1,0],[0,1],[1,0.5],[0.5,0]], // OK
+            [[0,0],[0,1],[0.5,1],[0,0],[1,0.5],[1,0],[1,0.5],[0.5,1],[1,1],[0,0],[0.5,1],[1,0.5]], // OK
+            [[1,0],[0,0],[0,0.5],[1,0],[0.5,1],[1,1],[0.5,1],[0,0.5],[0,1],[1,0],[0,0.5],[0.5,1]]];
+        return p[rotation];
+    } else if (pattern == 2) {
+        // todo!
+        return [];
+    } else if (pattern == 3) {
+        return [[0,0],[0,0.5],[0.5,0.5],[0,0],[0.5,0.5],[0.5,0],
+                [0,0.5],[0,1],[0.5,1],[0,0.5],[0.5,1],[0.5,0.5],
+                [0.5,0],[0.5,0.5],[1,0.5],[0.5,0],[1,0.5],[1,0],
+                [0.5,0.5],[0.5,1],[1,1],[0.5,0,5],[1,1],[1,0.5]];
+    } else if (pattern == 4) {
+        return [[0,0],[0,1],[0.5,1],[0,0],[0.5,1],[0.5,0],
+                [0.5,0],[0.5,1],[1,1],[0.5,0],[1,1],[1,0]];
+    } else {
+        console.log("Unknown" , pattern, rotation);
+        return [];
+    }
+}
+
 function tessellate() {
     if (model == null) return;
 
@@ -860,10 +919,23 @@ function tessellate() {
             patchColors[0][p[2]-6] :
             patchColors[p[2]-6+1][p[3]-1];
 
-        var level = 1 + tessFactor - p[0]/*depth*/;
-        if (level < 0) level = 0;
+        var level = tessFactor - p[0]/*depth*/;
+        if (level <= 0 && p[3] != 0/*transition*/) {
+            // under tessellated transition patch. need triangle patterns.
+            var params = getTransitionParams(p[3]-1, p[4]);
+            var edgeparams = [[0,0],[1,0],[0,1]];
+            for (var j = 0; j < params.length; ++j) {
+                var u = params[j][0];
+                var v = params[j][1];
+                var iu = edgeparams[j%3][0];
+                var iv = edgeparams[j%3][1];
+                pn = evalBSpline(model.patches[i], u, v);
+                addPoints(points, pn, u, v, iu, iv, color);
+                indices.push(vid++);
+            }
+        } else {
+            if (level < 0) level = 0;
         var div = (1 << level) + 1;
-        var vbegin = vid;
         for (iu = 0; iu < div; iu++) {
             for (iv = 0; iv < div; iv++) {
                 var u = iu/(div-1);
@@ -873,19 +945,7 @@ function tessellate() {
                 } else {
                     pn = evalBSpline(model.patches[i], u, v);
                 }
-                points.push(pn[0]);
-                points.push(pn[1]);
-                points.push(pn[2]);
-                points.push(pn[3]);
-                points.push(pn[4]);
-                points.push(pn[5]);
-                points.push(u);
-                points.push(v);
-                points.push(iu);
-                points.push(iv);
-                points.push(color[0]);
-                points.push(color[1]);
-                points.push(color[2]);
+                addPoints(points, pn, u, v, iu, iv, color);
                 if (iu != 0 && iv != 0) {
                     indices.push(vid);
                     indices.push(vid-div);
@@ -897,6 +957,7 @@ function tessellate() {
                 ++vid;
             }
         }
+}
         if (ncp == 4) {
             quadOffset += 4;
         }
@@ -1010,9 +1071,9 @@ function redraw() {
         var batch = model.batches[i];
         gl.bindBuffer(gl.ARRAY_BUFFER, batch.vbo);
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, batch.ibo);
-        gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 13*4, 0);   // XYZ
-        gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 13*4, 3*4); // normal
-        gl.vertexAttribPointer(2, 4, gl.FLOAT, false, 13*4, 6*4); // uv, iuiv
+        gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 13*4, 0);    // XYZ
+        gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 13*4, 3*4);  // normal
+        gl.vertexAttribPointer(2, 4, gl.FLOAT, false, 13*4, 6*4);  // uv, iuiv
         gl.vertexAttribPointer(3, 3, gl.FLOAT, false, 13*4, 10*4); // color
 
         gl.drawElements(gl.TRIANGLES, batch.nTris*3, gl.UNSIGNED_SHORT, 0);
