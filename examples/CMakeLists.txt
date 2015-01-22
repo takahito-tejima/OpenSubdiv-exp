@@ -31,6 +31,7 @@ if (PNG_FOUND)
 endif()
 
 add_subdirectory(common)
+add_subdirectory(obj2json)
 
 if (NOT NO_OPENGL)
     if (OPENGL_FOUND AND (GLEW_FOUND AND GLFW_FOUND) OR (APPLE AND GLFW_FOUND))
