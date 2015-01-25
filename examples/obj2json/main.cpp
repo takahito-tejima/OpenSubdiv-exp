@@ -73,126 +73,162 @@ int main(int argc, char *argv[])
 
     Far::PatchTables::PatchVertsTable vertsTable = patchTables->GetPatchControlVerticesTable();
 
+    int nTotalVerts = shape->verts.size() + vertexStencils->GetNumStencils();
+
+    const char *VTX = nTotalVerts > 32767 ? "32" : "16";
+
     printf("{\n");
     printf("  \"model\": {\n");
 
-    printf("    \"patches\": [\n");
+    // bsplines
+    printf("    \"patches\": new Int%sArray([\n", VTX);
     int narrays = patchTables->GetNumPatchArrays();
     for (int array=0; array<narrays; ++array) {
         Far::PatchDescriptor srcDesc = patchTables->GetPatchArrayDescriptor(array);
+        if (srcDesc.GetType() == Far::PatchDescriptor::GREGORY ||
+            srcDesc.GetType() == Far::PatchDescriptor::GREGORY_BOUNDARY) continue;
 
         int npatches = patchTables->GetNumPatches(array);
-        if (array != 0) printf(",\n");
         for (int j = 0; j < npatches; ++j) {
             Far::ConstIndexArray indices =
                 patchTables->GetPatchVertices(array, j);
-            if (j != 0) printf(",\n");
-            printf("      ");
-            printf("[");
-            for (int i = 0; i < indices.size(); ++i) {
-                if (i != 0) printf(",");
-                printf("%d", indices[i]);
+            for (int i = 0; i < 16; ++i) {
+                printf("%d,", i < indices.size() ? indices[i] : -1);
             }
-            printf("]");
+            printf("\n");
         }
     }
-    printf("\n    ],\n");
+    printf("    ]),\n");
 
-
-    printf("    \"patchParams\": [\n");
+    // gregory
+    printf("    \"gregoryPatches\": new Int%sArray([\n", VTX);
     for (int array=0; array<narrays; ++array) {
         Far::PatchDescriptor srcDesc = patchTables->GetPatchArrayDescriptor(array);
+        if (srcDesc.GetType() != Far::PatchDescriptor::GREGORY &&
+            srcDesc.GetType() != Far::PatchDescriptor::GREGORY_BOUNDARY) continue;
 
         int npatches = patchTables->GetNumPatches(array);
-        if (array != 0) printf(",\n");
+        for (int j = 0; j < npatches; ++j) {
+            Far::ConstIndexArray indices =
+                patchTables->GetPatchVertices(array, j);
+            for (int i = 0; i < indices.size(); ++i) {
+                printf("%d,", indices[i]);
+            }
+            printf("\n");
+        }
+    }
+    printf("    ]),\n");
+
+    printf("    \"patchParams\": new Uint8Array([\n");
+    for (int array=0; array<narrays; ++array) {
+        Far::PatchDescriptor srcDesc = patchTables->GetPatchArrayDescriptor(array);
+        if (srcDesc.GetType() == Far::PatchDescriptor::GREGORY ||
+            srcDesc.GetType() == Far::PatchDescriptor::GREGORY_BOUNDARY) continue;
+
+        int npatches = patchTables->GetNumPatches(array);
         for (int j = 0; j < npatches; ++j) {
             Far::PatchParam param = patchTables->GetPatchParam(array, j);
-            if (j != 0) printf(",");
-            printf("[%d, %d, %d, %d, %d]",
+            printf("%d, %d, %d, %d, %d,",
                    (int)param.bitField.GetDepth(),
                    param.bitField.GetRotation(),
                    srcDesc.GetType(),
                    srcDesc.GetPattern(),
                    srcDesc.GetRotation());
+            printf("\n");
         }
     }
-    printf("    ],\n");
+    for (int array=0; array<narrays; ++array) {
+        Far::PatchDescriptor srcDesc = patchTables->GetPatchArrayDescriptor(array);
+        if (srcDesc.GetType() != Far::PatchDescriptor::GREGORY &&
+            srcDesc.GetType() != Far::PatchDescriptor::GREGORY_BOUNDARY) continue;
 
-    printf("    \"vertexValences\": [\n");
+        int npatches = patchTables->GetNumPatches(array);
+        for (int j = 0; j < npatches; ++j) {
+            Far::PatchParam param = patchTables->GetPatchParam(array, j);
+            printf("%d, %d, %d, %d, %d,",
+                   (int)param.bitField.GetDepth(),
+                   param.bitField.GetRotation(),
+                   srcDesc.GetType(),
+                   srcDesc.GetPattern(),
+                   srcDesc.GetRotation());
+            printf("\n");
+        }
+    }
+    printf("    ]),\n");
+
+
+    printf("    \"vertexValences\": new Int%sArray([\n", VTX);
     {
         Far::PatchTables::VertexValenceTable valenceTable = patchTables->GetVertexValenceTable();
         for(int i = 0; i < valenceTable.size(); ++i) {
-            if (i != 0) printf(",");
-            printf("%d", valenceTable[i]);
+            printf("%d,", valenceTable[i]);
         }
     }
-    printf("\n    ],\n");
+    printf("\n    ]),\n");
     printf("    \"maxValence\": %d,\n", patchTables->GetMaxValence());
-    printf("    \"quadOffsets\": [\n");
+    printf("    \"quadOffsets\": new Int16Array([\n");
     {
         Far::PatchTables::QuadOffsetsTable quadOffsets = patchTables->GetQuadOffsetsTable();
         for(int i = 0; i < quadOffsets.size(); ++i) {
-            if (i != 0) printf(",");
-            printf("%d", quadOffsets[i]);
+            printf("%d,", quadOffsets[i]);
         }
     }
-    printf("\n    ],\n");
+    printf("\n    ]),\n");
 
 
     int nStencils = vertexStencils->GetNumStencils();
-    printf("    \"stencilIndices\": [\n");
-    printf("      ");
+    int stencilIndex = 0;
+    printf("    \"stencils\": new Uint32Array([\n");
     for (int i = 0; i < nStencils; ++i) {
-        if (i != 0) printf(",\n");
-        printf("[");
         Far::Stencil stencil = vertexStencils->GetStencil(i);
         int size = stencil.GetSize();
-        for(int j = 0; j < size; ++j) {
-            if (j != 0) printf(",");
-            printf("%d", stencil.GetVertexIndices()[j]);
-        }
-        printf("]");
+        printf("%d, %d,", stencilIndex, size);
+        stencilIndex += size;
     }
-    printf("\n    ],\n");
-    printf("    \"stencilWeights\": [\n");
-    printf("      ");
-    for (int i = 0; i < nStencils; ++i) {
-        if (i != 0) printf(",");
-        printf("[");
-        Far::Stencil stencil = vertexStencils->GetStencil(i);
-        int size = stencil.GetSize();
-        for(int j = 0; j < size; ++j) {
-            if (j != 0) printf(",");
-            printf("%f", stencil.GetWeights()[j]);
-        }
-        printf("]\n");
-    }
-    printf("\n    ],\n");
+    printf("\n    ]),\n");
 
-    printf("    \"points\": [\n");
+    printf("    \"stencilIndices\": new Uint%sArray([\n", VTX);
+    printf("      ");
+    for (int i = 0; i < nStencils; ++i) {
+        Far::Stencil stencil = vertexStencils->GetStencil(i);
+        int size = stencil.GetSize();
+        for(int j = 0; j < size; ++j) {
+            printf("%d,", stencil.GetVertexIndices()[j]);
+        }
+    }
+    printf("\n    ]),\n");
+    printf("    \"stencilWeights\": new Float32Array([\n");
+    printf("      ");
+    for (int i = 0; i < nStencils; ++i) {
+        Far::Stencil stencil = vertexStencils->GetStencil(i);
+        int size = stencil.GetSize();
+        for(int j = 0; j < size; ++j) {
+            printf("%f,", stencil.GetWeights()[j]);
+        }
+    }
+    printf("\n    ]),\n");
+
+    printf("    \"points\": new Float32Array([\n");
     for (int i = 0; i < shape->verts.size(); i += 3) {
-        if (i != 0) printf(",\n");
         if (yUp) {
-            printf("[%f,%f, %f]", shape->verts[i+0], shape->verts[i+1], shape->verts[i+2]);
+            printf("%f, %f, %f, ", shape->verts[i+0], shape->verts[i+1], shape->verts[i+2]);
         } else {
-            printf("[%f,%f, %f]", shape->verts[i+0], shape->verts[i+2], -shape->verts[i+1]);
+            printf("%f, %f, %f, ", shape->verts[i+0], shape->verts[i+2], -shape->verts[i+1]);
         }
     }
-    printf("\n    ],\n");
+    printf("\n    ]),\n");
 
-    printf("    \"hull\":\n");
+    printf("    \"hull\": new Int32Array([\n");
     int vid = 0;
-    printf("    [");
     for (int i = 0; i < shape->nvertsPerFace.size(); ++i) {
         int nverts = shape->nvertsPerFace[i];
         for (int j = 0; j < nverts; ++j) {
-            if (i!=0 || j!=0) printf(",");
-            printf("%d,%d", shape->faceverts[vid+j],
+            printf("%d,%d,", shape->faceverts[vid+j],
                    shape->faceverts[vid+(j+1)%nverts]);
         }
         vid += nverts;
     }
-    printf("]\n");
+    printf("])\n");
 
     printf("  }\n");
     printf("}\n");
