@@ -32,9 +32,13 @@ include_directories(
 
 list(APPEND PLATFORM_LIBRARIES
     "${OSD_LINK_TARGET}"
+    "${PTEX_LIBRARY}"
 )
 
-include_directories("${CMAKE_CURRENT_BINARY_DIR}")
+include_directories(
+        "${CMAKE_CURRENT_BINARY_DIR}"
+        "${PTEX_INCLUDE_DIR}"
+        )
 
 _add_executable(obj2json
     main.cpp

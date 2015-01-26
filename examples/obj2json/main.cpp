@@ -2,6 +2,7 @@
 #include <iostream>
 #include <string>
 #include <sstream>
+#include <float.h>
 
 #include <far/topologyRefiner.h>
 #include <far/patchTablesFactory.h>
@@ -9,7 +10,181 @@
 #include <common/vtr_utils.h>
 #include <common/shape_utils.h>
 
+#include <osd/ptexMipmapTextureLoader.h>
+
+#include "Ptexture.h"
+#include "PtexUtils.h"
+
 using namespace OpenSubdiv;
+
+void createPtex(PtexTexture *reader)
+{
+    int maxNumPages = 1;
+    int maxLevels = 1;
+    int targetMemory = 8*1000*1000.0;
+
+    // Read the ptexture data and pack the texels
+    Osd::PtexMipmapTextureLoader loader(reader,
+                                   maxNumPages,
+                                   maxLevels,
+                                   targetMemory);
+
+    // Setup GPU memory
+    int numFaces = loader.GetNumFaces();
+
+    printf("    \"ptexDim\": [%d, %d, %d],\n",
+           loader.GetPageWidth(), loader.GetPageHeight(), loader.GetNumPages());
+
+    fprintf(stderr, "%d * %d * %d\n", loader.GetPageWidth(), loader.GetPageHeight(), loader.GetNumPages());
+
+
+    printf("    \"ptexLayout\": new Uint16Array([\n");
+    int layoutSize = numFaces * 6 * sizeof(short);
+    const unsigned short *layout = (const unsigned short*)loader.GetLayoutBuffer();
+    for (int i = 0; i < layoutSize; ++i) {
+        printf("%d,", layout[i]);
+    }
+    printf("    ]),\n");
+
+    printf("    \"ptexTexel\": new Uint8Array([\n");
+    const unsigned char *texel = loader.GetTexelBuffer();
+    int texelSize = loader.GetPageWidth() * loader.GetPageHeight() * loader.GetNumPages()*reader->numChannels()*sizeof(char);
+    for (int i = 0; i < texelSize; ++i) {
+        printf("%d,", texel[i]);
+    }
+    printf("    ]),\n");
+    printf("    \"ptexChannel\": %d,\n", reader->numChannels());
+
+    /*
+    unsigned int layout = genTextureBuffer(GL_R16I,
+                                           numFaces * 6 * sizeof(GLshort),
+                                           loader.GetLayoutBuffer());
+
+    GLenum format, type;
+    switch (reader->dataType()) {
+        case Ptex::dt_uint16 : type = GL_UNSIGNED_SHORT; break;
+        case Ptex::dt_float  : type = GL_FLOAT; break;
+        case Ptex::dt_half   : type = GL_HALF_FLOAT; break;
+        default              : type = GL_UNSIGNED_BYTE; break;
+    }
+
+    switch (reader->numChannels()) {
+        case 1 : format = GL_RED; break;
+        case 2 : format = GL_RG; break;
+        case 3 : format = GL_RGB; break;
+        case 4 : format = GL_RGBA; break;
+        default: format = GL_RED; break;
+    }
+
+    // actual texels texture array
+    GLuint texels;
+    glGenTextures(1, &texels);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, texels);
+
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    glTexImage3D(GL_TEXTURE_2D_ARRAY, 0,
+                 (type == GL_FLOAT) ? GL_RGBA32F : GL_RGBA,
+                 loader.GetPageWidth(),
+                 loader.GetPageHeight(),
+                 loader.GetNumPages(),
+                 0, format, type,
+                 loader.GetTexelBuffer());
+
+//    loader.ClearBuffers();
+
+    // Return the Osd Ptexture object
+    result = new GLPtexMipmapTexture;
+
+    result->_width = loader.GetPageWidth();
+    result->_height = loader.GetPageHeight();
+    result->_depth = loader.GetNumPages();
+
+    result->_format = format;
+
+    result->_layout = layout;
+    result->_texels = texels;
+    result->_memoryUsage = loader.GetMemoryUsage();
+
+    return result;
+    */
+}
+
+Shape *
+createPTexGeo(PtexTexture * r) {
+
+    PtexMetaData* meta = r->getMetaData();
+
+    if (meta->numKeys() < 3) {
+        return NULL;
+    }
+
+    float const * vp;
+    int const *vi, *vc;
+    int nvp, nvi, nvc;
+
+    meta->getValue("PtexFaceVertCounts", vc, nvc);
+    if (nvc == 0) {
+        return NULL;
+    }
+    meta->getValue("PtexVertPositions", vp, nvp);
+    if (nvp == 0) {
+        return NULL;
+    }
+    meta->getValue("PtexFaceVertIndices", vi, nvi);
+    if (nvi == 0) {
+        return NULL;
+    }
+
+    Shape * shape = new Shape;
+
+    shape->scheme = kCatmark;
+
+    shape->verts.resize(nvp);
+    for (int i=0; i<nvp; ++i) {
+        shape->verts[i] = vp[i];
+    }
+
+    shape->nvertsPerFace.resize(nvc);
+    for (int i=0; i<nvc; ++i) {
+        shape->nvertsPerFace[i] = vc[i];
+    }
+
+    shape->faceverts.resize(nvi);
+    for (int i=0; i<nvi; ++i) {
+        shape->faceverts[i] = vi[i];
+    }
+
+    return shape;
+}
+void centering(Shape *shape)
+{
+    // compute model bounding
+    float min[3] = {FLT_MAX, FLT_MAX, FLT_MAX};
+    float max[3] = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
+    for (size_t i = 0; i < shape->verts.size(); i += 3) {
+        for (int j = 0; j < 3; ++j) {
+            min[j] = std::min(min[j], shape->verts[i+j]);
+            max[j] = std::max(max[j], shape->verts[i+j]);
+        }
+    }
+    float diag[3], center[3];
+    for (int j = 0; j < 3; ++j) {
+        diag[j] = max[j]-min[j];
+        center[j] = (max[j]+min[j])*0.5;
+    }
+    float rad = sqrt(diag[0]*diag[0] + diag[1]*diag[1] + diag[2]*diag[2]);
+
+    for (size_t i = 0; i < shape->verts.size(); i += 3) {
+        for (int j = 0; j < 3; ++j) {
+            float v = (shape->verts[i+j] - center[j])/rad;
+            shape->verts[i+j] = v;
+        }
+    }
+}
 
 int main(int argc, char *argv[])
 {
@@ -28,20 +203,31 @@ int main(int argc, char *argv[])
     }
 
     if (filename == NULL) {
-        printf("Usage: %s -l <level> filename.obj\n", argv[0]);
+        printf("Usage: %s -l <level> filename.{obj|ptx}\n", argv[0]);
         return 0;
     }
 
-    std::ifstream ifs(filename);
+    PtexTexture *ptexColor = NULL;
+    Shape *shape = NULL;
 
-    std::stringstream ss;
-    ss << ifs.rdbuf();
-    ifs.close();
-    std::string str = ss.str();
+    if (strstr(filename, ".ptx") != NULL) {
+        Ptex::String ptexError;
+        PtexTexture *ptex = PtexTexture::open(filename, ptexError, true);
+        shape = createPTexGeo(ptex);
+        ptexColor = ptex;
+    } else {
+        std::ifstream ifs(filename);
 
-    typedef OpenSubdiv::Far::ConstIndexArray IndexArray;
+        std::stringstream ss;
+        ss << ifs.rdbuf();
+        ifs.close();
+        std::string str = ss.str();
 
-    Shape const * shape = Shape::parseObj(str.c_str(), kCatmark);
+        shape = Shape::parseObj(str.c_str(), kCatmark);
+    }
+
+    // centering & normalize
+    centering(shape);
 
     // create Vtr mesh (topology)
     OpenSubdiv::Sdc::SchemeType sdctype = GetSdcType(*shape);
@@ -119,7 +305,7 @@ int main(int argc, char *argv[])
     }
     printf("    ]),\n");
 
-    printf("    \"patchParams\": new Uint8Array([\n");
+    printf("    \"patchParams\": new Uint16Array([\n");
     for (int array=0; array<narrays; ++array) {
         Far::PatchDescriptor srcDesc = patchTables->GetPatchArrayDescriptor(array);
         if (srcDesc.GetType() == Far::PatchDescriptor::GREGORY ||
@@ -128,12 +314,15 @@ int main(int argc, char *argv[])
         int npatches = patchTables->GetNumPatches(array);
         for (int j = 0; j < npatches; ++j) {
             Far::PatchParam param = patchTables->GetPatchParam(array, j);
-            printf("%d, %d, %d, %d, %d,",
+            printf("%d, %d, %d, %d, %d, %d, %d, %d,",
                    (int)param.bitField.GetDepth(),
                    param.bitField.GetRotation(),
                    srcDesc.GetType(),
                    srcDesc.GetPattern(),
-                   srcDesc.GetRotation());
+                   srcDesc.GetRotation(),
+                   param.bitField.GetU(),
+                   param.bitField.GetV(),
+                   param.faceIndex);
             printf("\n");
         }
     }
@@ -145,12 +334,15 @@ int main(int argc, char *argv[])
         int npatches = patchTables->GetNumPatches(array);
         for (int j = 0; j < npatches; ++j) {
             Far::PatchParam param = patchTables->GetPatchParam(array, j);
-            printf("%d, %d, %d, %d, %d,",
+            printf("%d, %d, %d, %d, %d, %d, %d, %d,",
                    (int)param.bitField.GetDepth(),
                    param.bitField.GetRotation(),
                    srcDesc.GetType(),
                    srcDesc.GetPattern(),
-                   srcDesc.GetRotation());
+                   srcDesc.GetRotation(),
+                   param.bitField.GetU(),
+                   param.bitField.GetV(),
+                   param.faceIndex);
             printf("\n");
         }
     }
@@ -160,7 +352,7 @@ int main(int argc, char *argv[])
     printf("    \"vertexValences\": new Int%sArray([\n", VTX);
     {
         Far::PatchTables::VertexValenceTable valenceTable = patchTables->GetVertexValenceTable();
-        for(int i = 0; i < valenceTable.size(); ++i) {
+        for(size_t i = 0; i < valenceTable.size(); ++i) {
             printf("%d,", valenceTable[i]);
         }
     }
@@ -169,7 +361,7 @@ int main(int argc, char *argv[])
     printf("    \"quadOffsets\": new Int16Array([\n");
     {
         Far::PatchTables::QuadOffsetsTable quadOffsets = patchTables->GetQuadOffsetsTable();
-        for(int i = 0; i < quadOffsets.size(); ++i) {
+        for(size_t i = 0; i < quadOffsets.size(); ++i) {
             printf("%d,", quadOffsets[i]);
         }
     }
@@ -209,7 +401,7 @@ int main(int argc, char *argv[])
     printf("\n    ]),\n");
 
     printf("    \"points\": new Float32Array([\n");
-    for (int i = 0; i < shape->verts.size(); i += 3) {
+    for (size_t i = 0; i < shape->verts.size(); i += 3) {
         if (yUp) {
             printf("%f, %f, %f, ", shape->verts[i+0], shape->verts[i+1], shape->verts[i+2]);
         } else {
@@ -220,7 +412,7 @@ int main(int argc, char *argv[])
 
     printf("    \"hull\": new Int32Array([\n");
     int vid = 0;
-    for (int i = 0; i < shape->nvertsPerFace.size(); ++i) {
+    for(size_t i = 0; i < shape->nvertsPerFace.size(); ++i) {
         int nverts = shape->nvertsPerFace[i];
         for (int j = 0; j < nverts; ++j) {
             printf("%d,%d,", shape->faceverts[vid+j],
@@ -228,7 +420,11 @@ int main(int argc, char *argv[])
         }
         vid += nverts;
     }
-    printf("])\n");
+    printf("]),\n");
+
+    if (ptexColor) {
+        createPtex(ptexColor);
+    }
 
     printf("  }\n");
     printf("}\n");
