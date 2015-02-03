@@ -15,13 +15,63 @@
 #include "Ptexture.h"
 #include "PtexUtils.h"
 
+#include <zlib.h>
+#include <png.h>
+
 using namespace OpenSubdiv;
 
-void createPtex(PtexTexture *reader)
+void writePNG(const char *filename, int width, int height, int nChannel, const unsigned char *buf)
+{
+    if (FILE * f = fopen(filename, "w" )) {
+
+        png_structp png_ptr =
+            png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+        assert(png_ptr);
+
+        png_infop info_ptr =
+            png_create_info_struct(png_ptr);
+        assert(info_ptr);
+
+        int type = PNG_COLOR_TYPE_RGB_ALPHA;
+        int depth = 8;
+        if (nChannel == 3) type = PNG_COLOR_TYPE_RGB;
+        else if (nChannel == 1) {
+            type = PNG_COLOR_TYPE_GRAY;
+        }
+
+        png_set_IHDR(png_ptr, info_ptr, width, height, depth,
+                     type,
+                         PNG_INTERLACE_NONE,
+                         PNG_COMPRESSION_TYPE_DEFAULT,
+                         PNG_FILTER_TYPE_DEFAULT );
+
+        png_set_compression_level(png_ptr, Z_BEST_COMPRESSION);
+
+        png_bytep rows_ptr[ height ];
+        for(int i = 0; i<height; ++i ) {
+            //rows_ptr[height-i-1] = ((png_byte *)buf) + i*width*4;
+            rows_ptr[i] = ((png_byte *)buf) + i*width*nChannel;
+        }
+
+        png_set_rows(png_ptr, info_ptr, rows_ptr);
+
+        png_init_io(png_ptr, f);
+
+        png_write_png( png_ptr, info_ptr, PNG_TRANSFORM_IDENTITY, 0 );
+
+        png_destroy_write_struct(&png_ptr, &info_ptr);
+
+        fclose(f);
+    } else {
+        fprintf(stderr, "Error creating: %s\n", filename);
+    }
+}
+
+void createPtex(PtexTexture *reader, const char *texname, bool png)
 {
     int maxNumPages = 1;
-    int maxLevels = 1;
-    int targetMemory = 8*1000*1000.0;
+    int maxLevels = 6;
+    int targetMemory = 4096*4096;
 
     // Read the ptexture data and pack the texels
     Osd::PtexMipmapTextureLoader loader(reader,
@@ -31,29 +81,43 @@ void createPtex(PtexTexture *reader)
 
     // Setup GPU memory
     int numFaces = loader.GetNumFaces();
+    int width = loader.GetPageWidth();
+    int height = loader.GetPageHeight();
+    int depth = loader.GetNumPages();
+    int channel = reader->numChannels();
+    int type = reader->dataType();;
 
-    printf("    \"ptexDim\": [%d, %d, %d],\n",
-           loader.GetPageWidth(), loader.GetPageHeight(), loader.GetNumPages());
+    printf("    \"ptexDim_%s\": [%d, %d, %d, %d, %d],\n", texname, width, height, depth, channel, type);
+    fprintf(stderr, "%d * %d * %d, %d, %d\n", width, height, depth, channel, type);
 
-    fprintf(stderr, "%d * %d * %d\n", loader.GetPageWidth(), loader.GetPageHeight(), loader.GetNumPages());
-
-
-    printf("    \"ptexLayout\": new Uint16Array([\n");
-    int layoutSize = numFaces * 6 * sizeof(short);
+    printf("    \"ptexLayout_%s\": new Uint16Array([\n", texname);
+    int layoutSize = numFaces * 6;
     const unsigned short *layout = (const unsigned short*)loader.GetLayoutBuffer();
     for (int i = 0; i < layoutSize; ++i) {
         printf("%d,", layout[i]);
     }
     printf("    ]),\n");
 
-    printf("    \"ptexTexel\": new Uint8Array([\n");
+
     const unsigned char *texel = loader.GetTexelBuffer();
-    int texelSize = loader.GetPageWidth() * loader.GetPageHeight() * loader.GetNumPages()*reader->numChannels()*sizeof(char);
-    for (int i = 0; i < texelSize; ++i) {
-        printf("%d,", texel[i]);
+    if (png) {
+        char filename[256];
+        sprintf(filename, "%s.png", texname);
+        fprintf(stderr, "writing %s\n", filename);
+        writePNG(filename, width, height, channel, texel);
+    } else {
+        char filename[256];
+        sprintf(filename, "%s.raw", texname);
+        fprintf(stderr, "writing %s\n", filename);
+
+        FILE *fp = fopen(filename, "wb");
+
+        int bpp[] = {1, 2, 2, 4}; // uin8, uin16, half, float
+
+        int size = width*height*channel*bpp[type];
+        fwrite(texel, size, 1, fp);
+        fclose(fp);
     }
-    printf("    ]),\n");
-    printf("    \"ptexChannel\": %d,\n", reader->numChannels());
 
     /*
     unsigned int layout = genTextureBuffer(GL_R16I,
@@ -191,28 +255,35 @@ int main(int argc, char *argv[])
     int level = 1;
     bool yUp = true;
     const char *filename = NULL;
+    const char *displaceFileName = NULL;
 
     for (int i = 1; i < argc; ++i) {
         if (!strcmp(argv[i], "-l")) {
             level = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "-z")) {
             yUp = false;
-        } else {
+        } else if (filename == NULL) {
             filename = argv[i];
+        } else if (displaceFileName == NULL) {
+            displaceFileName = argv[i];
         }
     }
 
     if (filename == NULL) {
-        printf("Usage: %s -l <level> filename.{obj|ptx}\n", argv[0]);
+        printf("Usage: %s -l <level> filename.{obj|ptx} [displace.ptx]\n", argv[0]);
         return 0;
     }
 
     PtexTexture *ptexColor = NULL;
+    Ptex::String ptexError;
     Shape *shape = NULL;
 
+#define USE_PTEX_CACHE
+#define PTEX_CACHE_SIZE (512*1024*1024)
+    PtexCache *cache = PtexCache::create(1, PTEX_CACHE_SIZE);
+
     if (strstr(filename, ".ptx") != NULL) {
-        Ptex::String ptexError;
-        PtexTexture *ptex = PtexTexture::open(filename, ptexError, true);
+        PtexTexture *ptex = cache->get(filename, ptexError);
         shape = createPTexGeo(ptex);
         ptexColor = ptex;
     } else {
@@ -423,7 +494,15 @@ int main(int argc, char *argv[])
     printf("]),\n");
 
     if (ptexColor) {
-        createPtex(ptexColor);
+        createPtex(ptexColor, "color", true);
+    }
+    if (displaceFileName) {
+        //PtexTexture *ptex = PtexTexture::open(displaceFileName, ptexError, true);
+        PtexTexture *ptex = cache->get(displaceFileName, ptexError);
+        if (ptex == NULL) {
+            fprintf(stderr, "Error in open %s\n", displaceFileName);
+        }
+        createPtex(ptex, "displace", false);
     }
 
     printf("  }\n");
