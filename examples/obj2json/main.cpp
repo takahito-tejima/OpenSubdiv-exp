@@ -20,6 +20,22 @@
 
 using namespace OpenSubdiv;
 
+void dump(int width, int height, int nChannel, const unsigned char *buf)
+{
+    const unsigned char *p = buf;
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            if (*p > 0) {
+                printf("%02x ", *p);
+            } else {
+                printf("   ");
+            }
+            p += nChannel;
+        }
+        printf("\n");
+    }
+}
+
 void writePNG(const char *filename, int width, int height, int nChannel, const unsigned char *buf)
 {
     if (FILE * f = fopen(filename, "w" )) {
@@ -70,7 +86,7 @@ void writePNG(const char *filename, int width, int height, int nChannel, const u
 void createPtex(PtexTexture *reader, const char *texname, bool png)
 {
     int maxNumPages = 1;
-    int maxLevels = 6;
+    int maxLevels = 0;
     int targetMemory = 4096*4096;
 
     // Read the ptexture data and pack the texels
@@ -104,6 +120,7 @@ void createPtex(PtexTexture *reader, const char *texname, bool png)
         char filename[256];
         sprintf(filename, "%s.png", texname);
         fprintf(stderr, "writing %s\n", filename);
+        dump(width, height, channel, texel);
         writePNG(filename, width, height, channel, texel);
     } else {
         char filename[256];

@@ -38,6 +38,16 @@ namespace OPENSUBDIV_VERSION {
 
 namespace Osd {
 
+    struct Layout {
+        uint16_t page;
+        uint16_t nMipmap;
+        uint16_t u;
+        uint16_t v;
+        uint16_t adjSizeDiffs; //(4:4:4:4)
+        uint8_t  ulog2;
+        uint8_t  vlog2;
+    };
+
 class PtexMipmapTextureLoader {
 public:
     PtexMipmapTextureLoader(PtexTexture *ptex,
@@ -53,6 +63,10 @@ public:
     }
     const unsigned char * GetTexelBuffer() const {
         return _texelBuffer;
+    }
+    const unsigned char * GetTexel(int page=0, int u=0, int v=0) const {
+        return _texelBuffer + page*_pageWidth*_pageHeight*_bpp +
+            v*_pageWidth*_bpp + u*_bpp;
     }
     int GetNumFaces() const {
         return (int)_blocks.size();
@@ -114,6 +128,10 @@ private:
                       unsigned char *destination,
                       int bpp, int width, int maxLevels);
 
+        void BlockGuttering(PtexMipmapTextureLoader *loader, PtexTexture *ptex,
+                       unsigned char *destination,
+                       int bpp, int width, int maxLevels);
+
         void SetSize(unsigned char ulog2_, unsigned char vlog2_, bool mipmap);
 
         int GetNumTexels() const {
@@ -133,11 +151,19 @@ private:
     struct Page;
     class CornerIterator;
 
+    struct TexelPos {
+        int page;
+        int u;
+        int v;
+    };
+
     void generateBuffers();
     void optimizePacking(int maxNumPages, size_t targetMemory);
     int  getLevelDiff(int face, int edge);
     bool getCornerPixel(float *resultPixel, int numchannels,
                         int face, int edge, int8_t res);
+    void getNeighborTexelPos(TexelPos *ret,
+                             int face, int edge, int index, int bpp);
     void sampleNeighbor(unsigned char *border,
                         int face, int edge, int length, int bpp);
     int  resampleBorder(int face, int edgeId, unsigned char *result,

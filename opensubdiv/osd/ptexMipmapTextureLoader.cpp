@@ -37,6 +37,142 @@ namespace OPENSUBDIV_VERSION {
 
 namespace Osd {
 
+
+// Utility class for Ptex corner iteration
+class PtexMipmapTextureLoader::CornerIterator
+{
+public:
+    CornerIterator(PtexTexture *ptex, int face, int edge, int8_t reslog2) :
+        _ptex(ptex),
+        _startFace(face), _startEdge(edge),
+        _currentFace(face), _currentEdge(edge), _reslog2(reslog2),
+        _clockWise(true), _mid(false), _done(false), _isBoundary(true) {
+
+        _numChannels = _ptex->numChannels();
+        _currentInfo = _ptex->getFaceInfo(_currentFace);
+        if (_currentInfo.isSubface()) ++_reslog2;
+    }
+
+    int GetCurrentFace() const {
+        return _currentFace;
+    }
+
+    void GetPixel(float *resultPixel) {
+        int8_t r = (int8_t)(_currentInfo.isSubface() ? _reslog2 - 1 : _reslog2);
+
+        // limit to the maximum ptex resolution
+        r = std::min(std::min(r, _currentInfo.res.ulog2),
+                     _currentInfo.res.vlog2);
+        Ptex::Res res(r, r);
+        int uv[4][2] = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
+        int u = uv[_currentEdge][0] * (res.u()-1);
+        int v = uv[_currentEdge][1] * (res.v()-1);
+
+        _ptex->getPixel(_currentFace, u, v, resultPixel, 0, _numChannels, res);
+    }
+    void GetTexelPos(TexelPos *tpos, const Layout *layout) {
+        layout += _currentFace;
+
+        int uv[4][2] = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
+        int u = uv[_currentEdge][0] * ((1<<layout->ulog2)-1);
+        int v = uv[_currentEdge][1] * ((1<<layout->vlog2)-1);
+
+        tpos->page = layout->page;
+        tpos->u = layout->u + u;
+        tpos->v = layout->v + v;
+    }
+
+    bool IsDone() const {
+        return _done;
+    }
+
+    bool IsSubface() const {
+        return _currentInfo.isSubface();
+    }
+
+    bool IsBoundary() const {
+        return _isBoundary;
+    }
+
+    void Next() {
+        if (_done) return;
+
+        // next face
+        Ptex::FaceInfo info = _ptex->getFaceInfo(_currentFace);
+
+        if (_clockWise) {
+            _currentFace = info.adjface(_currentEdge);
+            if (_mid) {
+                _currentFace = _ptex->getFaceInfo(_currentFace).adjface(2);
+                _currentEdge = 1;
+                _mid = false;
+            } else if (info.isSubface() and
+                (not _ptex->getFaceInfo(_currentFace).isSubface()) and
+                _currentEdge == 3) {
+                _mid = true;
+                _currentEdge = info.adjedge(_currentEdge);
+            } else {
+                _mid = false;
+                _currentEdge = info.adjedge(_currentEdge);
+                _currentEdge = (_currentEdge+1)%4;
+            }
+        } else {
+            _currentFace = info.adjface((_currentEdge+3)%4);
+            _currentEdge = info.adjedge((_currentEdge+3)%4);
+        }
+
+        if (_currentFace == -1) {
+            // border case.
+            if (_clockWise) {
+                // reset position and restart counter clock wise
+                Ptex::FaceInfo sinfo = _ptex->getFaceInfo(_startFace);
+                _currentFace = sinfo.adjface((_startEdge+3)%4);
+                _currentEdge = sinfo.adjedge((_startEdge+3)%4);
+                _clockWise = false;
+            } else {
+                // end
+                _done = true;
+                return;
+            }
+        }
+        Ptex::FaceInfo nextFaceInfo = _ptex->getFaceInfo(_currentFace);
+        if ((not _clockWise) and
+            (not info.isSubface()) and (nextFaceInfo.isSubface())) {
+             // needs tricky traverse for boundary subface...
+             if (_currentEdge == 3) {
+                 _currentFace = nextFaceInfo.adjface(2);
+                 _currentEdge = 0;
+             }
+        }
+
+        if (_currentFace == -1) {
+            _done = true;
+            return;
+        }
+
+        if (_currentFace == _startFace) {
+            _done = true;
+            _isBoundary = false;
+            return;
+        }
+
+        _currentInfo = _ptex->getFaceInfo(_currentFace);
+    }
+
+private:
+    PtexTexture *_ptex;
+    int _numChannels;
+    int _startFace, _startEdge;
+    int _currentFace, _currentEdge;
+    int8_t _reslog2;
+    bool _clockWise;
+    bool _mid;
+    bool _done;
+    bool _isBoundary;
+    Ptex::FaceInfo _currentInfo;
+};
+
+// ---------------------------------------------------------------------------
 // sample neighbor pixels and populate around blocks
 void
 PtexMipmapTextureLoader::Block::guttering(PtexMipmapTextureLoader *loader,
@@ -156,6 +292,119 @@ PtexMipmapTextureLoader::Block::guttering(PtexMipmapTextureLoader *loader,
 }
 
 void
+PtexMipmapTextureLoader::Block::BlockGuttering(
+    PtexMipmapTextureLoader *loader, PtexTexture *ptex,
+    unsigned char *pageOrigin,
+    int bpp, int width, int maxLevels)
+{
+//    int lineBufferSize = std::max(wid, hei) * bpp;
+    const Ptex::FaceInfo &faceInfo = ptex->getFaceInfo(index);
+
+    const Layout *layout = (const Layout*)loader->GetLayoutBuffer();
+    int ulog2 = layout[index].ulog2;
+    int vlog2 = layout[index].vlog2;
+    int stride = width * bpp;
+
+    int level = 0;
+    int limit = faceInfo.isSubface() ? 1 : 2;
+    int uofs = u, vofs = v;
+    printf("U, V, STRIDE = %d, %d, %d\n", u, v, stride);
+
+    // but if the base size is already less than limit, we'd like to pick it
+    // instead of nothing.
+    limit = std::min(std::min(limit, ulog2 ), vlog2 );
+
+    while (ulog2 >= limit and vlog2 >= limit
+           and (maxLevels == -1 or level <= maxLevels)) {
+        if (level % 2 == 1)
+            uofs += (1<<(ulog2+1))+2;
+        if ((level > 0) and (level % 2 == 0))
+            vofs += (1<<(vlog2+1)) + 2;
+
+        int wid = 1 << ulog2;
+        int hei = 1 << vlog2;
+        unsigned char *destination =
+            pageOrigin + (vofs * stride + uofs * bpp);
+
+        for (int edge = 0; edge < 4; edge++) {
+            int len = (edge == 0 or edge == 2) ? wid : hei;
+            //loader->sampleNeighbor(lineBuffer, this->index, edge, len, bpp);
+            TexelPos tpos;
+
+            unsigned char *s, *d;
+            for (int j = 0; j < len; ++j) {
+                d = destination;
+                loader->getNeighborTexelPos(&tpos,
+                                            index, edge, j, bpp);
+                printf("TPOS= %d: %d, %d, %d\n", j, tpos.page, tpos.u, tpos.v);
+                const unsigned char *s = loader->GetTexel(tpos.page, tpos.u, tpos.v);
+                switch (edge) {
+                case Ptex::e_bottom:
+                    d += bpp * (j + 1);
+                    break;
+                case Ptex::e_right:
+                    d += stride * (j + 1) + bpp * (wid+1);
+                    break;
+                case Ptex::e_top:
+                    d += stride * (hei+1) + bpp*(len-j);
+                    break;
+                case Ptex::e_left:
+                    d += stride * (len-j);
+                    break;
+                }
+                for (int k = 0; k < bpp; k++)
+                   *d++ = *s++;
+            }
+        }
+        // fix corner
+        int uv[4][2] = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
+
+        for (int edge = 0; edge < 4; edge++) {
+            int du = uv[edge][0];
+            int dv = uv[edge][1];
+
+            // iterate faces around the vertex
+            int numFaces = 0;
+            int reslog2 = ulog2; // XXX:
+            CornerIterator it(ptex, index, edge, reslog2);
+
+            if (edge == 1 || edge == 2) du += wid;
+            if (edge == 2 || edge == 3) dv += hei;
+
+            unsigned char *d = 
+                pageOrigin + (vofs * stride + uofs * bpp)
+                + dv*stride + du*bpp;
+
+            TexelPos tpos;
+            for (; not it.IsDone(); it.Next(), ++numFaces) {
+                it.GetTexelPos(&tpos, (const Layout*)loader->GetLayoutBuffer());
+//                it.GetPixel(pixel);
+
+                printf("CORNER TPOS= %d, %d, %d\n", tpos.page, tpos.u, tpos.v);
+                // accumulate pixel value
+                if (numFaces == 2) {
+                    const unsigned char *s = loader->GetTexel(tpos.page, tpos.u, tpos.v);
+                    for (int j = 0; j < bpp; ++j) {
+                        *d++ = *s++;
+                    }
+//                    accumPixel[j] += pixel[j];
+                        
+                        // also save the diagonal pixel for regular corner case
+//                        resultPixel[j] = pixel[j];
+                } else {
+                }
+            }
+        }
+
+
+        --ulog2;
+        --vlog2;
+        ++level;
+    }
+    //delete[] lineBuffer;
+}
+
+void
 PtexMipmapTextureLoader::Block::Generate(PtexMipmapTextureLoader *loader,
                                             PtexTexture *ptex,
                                             unsigned char *destination,
@@ -191,7 +440,7 @@ PtexMipmapTextureLoader::Block::Generate(PtexMipmapTextureLoader *loader,
             + (uofs + 1) * bpp;
         ptex->getData(index, dstData, stride, Ptex::Res(ulog2_, vlog2_));
 
-        guttering(loader, ptex, level, 1<<ulog2_, 1<<vlog2_, dst, bpp, stride);
+//        guttering(loader, ptex, level, 1<<ulog2_, 1<<vlog2_, dst, bpp, stride);
 
         --ulog2_;
         --vlog2_;
@@ -214,6 +463,9 @@ PtexMipmapTextureLoader::Block::SetSize(unsigned char ulog2_,
     if (mipmap) {
         w = w + w/2 + 4;
         h = h + 2;
+    } else {
+        w += 2;
+        h += 2;
     }
 
     width = (int16_t)w;
@@ -302,6 +554,15 @@ struct PtexMipmapTextureLoader::Page
         }
     }
 
+    void Guttering(PtexMipmapTextureLoader *loader, PtexTexture *ptex,
+                   unsigned char *pageOrigin,
+                   int bpp, int width, int maxLevels) {
+        for (BlockList::iterator it = _blocks.begin();
+             it != _blocks.end(); ++it) {
+            (*it)->BlockGuttering(loader, ptex, pageOrigin, bpp, width, maxLevels);
+        }
+    }
+
     const BlockList &GetBlocks() const {
         return _blocks;
     }
@@ -319,131 +580,6 @@ private:
 
     typedef std::list<Slot> SlotList;
     SlotList _slots;
-};
-
-// ---------------------------------------------------------------------------
-
-// Utility class for Ptex corner iteration
-class PtexMipmapTextureLoader::CornerIterator
-{
-public:
-    CornerIterator(PtexTexture *ptex, int face, int edge, int8_t reslog2) :
-        _ptex(ptex),
-        _startFace(face), _startEdge(edge),
-        _currentFace(face), _currentEdge(edge), _reslog2(reslog2),
-        _clockWise(true), _mid(false), _done(false), _isBoundary(true) {
-
-        _numChannels = _ptex->numChannels();
-        _currentInfo = _ptex->getFaceInfo(_currentFace);
-        if (_currentInfo.isSubface()) ++_reslog2;
-    }
-
-    int GetCurrentFace() const {
-        return _currentFace;
-    }
-
-    void GetPixel(float *resultPixel) {
-        int8_t r = (int8_t)(_currentInfo.isSubface() ? _reslog2 - 1 : _reslog2);
-
-        // limit to the maximum ptex resolution
-        r = std::min(std::min(r, _currentInfo.res.ulog2),
-                     _currentInfo.res.vlog2);
-        Ptex::Res res(r, r);
-        int uv[4][2] = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
-        int u = uv[_currentEdge][0] * (res.u()-1);
-        int v = uv[_currentEdge][1] * (res.v()-1);
-
-        _ptex->getPixel(_currentFace, u, v, resultPixel, 0, _numChannels, res);
-    }
-
-    bool IsDone() const {
-        return _done;
-    }
-
-    bool IsSubface() const {
-        return _currentInfo.isSubface();
-    }
-
-    bool IsBoundary() const {
-        return _isBoundary;
-    }
-
-    void Next() {
-        if (_done) return;
-
-        // next face
-        Ptex::FaceInfo info = _ptex->getFaceInfo(_currentFace);
-
-        if (_clockWise) {
-            _currentFace = info.adjface(_currentEdge);
-            if (_mid) {
-                _currentFace = _ptex->getFaceInfo(_currentFace).adjface(2);
-                _currentEdge = 1;
-                _mid = false;
-            } else if (info.isSubface() and
-                (not _ptex->getFaceInfo(_currentFace).isSubface()) and
-                _currentEdge == 3) {
-                _mid = true;
-                _currentEdge = info.adjedge(_currentEdge);
-            } else {
-                _mid = false;
-                _currentEdge = info.adjedge(_currentEdge);
-                _currentEdge = (_currentEdge+1)%4;
-            }
-        } else {
-            _currentFace = info.adjface((_currentEdge+3)%4);
-            _currentEdge = info.adjedge((_currentEdge+3)%4);
-        }
-
-        if (_currentFace == -1) {
-            // border case.
-            if (_clockWise) {
-                // reset position and restart counter clock wise
-                Ptex::FaceInfo sinfo = _ptex->getFaceInfo(_startFace);
-                _currentFace = sinfo.adjface((_startEdge+3)%4);
-                _currentEdge = sinfo.adjedge((_startEdge+3)%4);
-                _clockWise = false;
-            } else {
-                // end
-                _done = true;
-                return;
-            }
-        }
-        Ptex::FaceInfo nextFaceInfo = _ptex->getFaceInfo(_currentFace);
-        if ((not _clockWise) and
-            (not info.isSubface()) and (nextFaceInfo.isSubface())) {
-             // needs tricky traverse for boundary subface...
-             if (_currentEdge == 3) {
-                 _currentFace = nextFaceInfo.adjface(2);
-                 _currentEdge = 0;
-             }
-        }
-
-        if (_currentFace == -1) {
-            _done = true;
-            return;
-        }
-
-        if (_currentFace == _startFace) {
-            _done = true;
-            _isBoundary = false;
-            return;
-        }
-
-        _currentInfo = _ptex->getFaceInfo(_currentFace);
-    }
-
-private:
-    PtexTexture *_ptex;
-    int _numChannels;
-    int _startFace, _startEdge;
-    int _currentFace, _currentEdge;
-    int8_t _reslog2;
-    bool _clockWise;
-    bool _mid;
-    bool _done;
-    bool _isBoundary;
-    Ptex::FaceInfo _currentInfo;
 };
 
 // ---------------------------------------------------------------------------
@@ -586,6 +722,86 @@ flipBuffer(unsigned char *buffer, int length, int bpp)
         for (int j = 0; j < bpp; j++) {
             std::swap(buffer[i*bpp+j], buffer[(length-1-i)*bpp+j]);
         }
+    }
+}
+
+void
+PtexMipmapTextureLoader::getNeighborTexelPos(TexelPos *ret,
+                                             int face, int edge, int index, int bpp)
+{
+    const Ptex::FaceInfo &fi = _ptex->getFaceInfo(face);
+    int adjface = fi.adjface(edge);
+
+    ret->page = 0;
+    ret->u = 0;
+    ret->v = 0;
+    
+    if (adjface != -1) {
+//    Ptex::Res res(_blocks[face].ulog2, _blocks[face].vlog2);
+        int ae = fi.adjedge(edge);
+        if (!fi.isSubface() && !_ptex->getFaceInfo(adjface).isSubface()) {
+            /*  ordinary case (1:1 match)
+                +------------------+
+                |       face       |
+                +--------edge------+
+                |    adj face      |
+                +----------+-------+
+            */
+            const Layout *layout = &((const Layout*) _layoutBuffer)[adjface];
+            int u, v;
+            int width = 1 << layout->ulog2;
+            int height= 1 << layout->vlog2;
+
+            // uv resolving.
+            if (ae == Ptex::e_bottom) {
+                u = layout->u + width-1-index;
+                v = layout->v;
+            } else if (ae == Ptex::e_right) {
+                u = layout->u + width-1;
+                v = layout->v + height-1-index;
+            } else if (ae == Ptex::e_top) {
+                u = layout->u + index;
+                v = layout->v + height-1;
+            } else if (ae == Ptex::e_left) {
+                u = layout->u;
+                v = layout->v + index;
+            }
+            
+            ret->page = layout->page;
+            ret->u = u;
+            ret->v = v;
+            return;
+        }
+    } else {
+        const Layout *layout = &((const Layout*) _layoutBuffer)[face];
+        /* border edge. duplicate itself
+           +-----------------+
+           |       face      |
+           +-------edge------+
+        */
+        int u, v;
+        int width = 1 << layout->ulog2;
+        int height= 1 << layout->vlog2;
+
+        // uv resolving.
+        if (edge == Ptex::e_bottom) {
+            u = layout->u + index;
+            v = layout->v;
+        } else if (edge == Ptex::e_right) {
+            u = layout->u + width-1;
+            v = layout->v + index;
+        } else if (edge == Ptex::e_top) {
+            u = layout->u + width-1-index;
+            v = layout->v + height-1;
+        } else if (edge == Ptex::e_left) {
+            u = layout->u;
+            v = layout->v + height-1-index;
+        }
+
+        ret->page = layout->page;
+        ret->u = u;
+        ret->v = v;
+        return;
     }
 }
 
@@ -859,7 +1075,7 @@ PtexMipmapTextureLoader::optimizePacking(int maxNumPages,
 
         // grow the pagesize to make sure the optimization will not exceed
         // the maximum number of pages allowed
-        int minPageSize = 512;
+        int minPageSize = 18;
         int maxPageSize = 4096;  // XXX:should be configurable.
 
         // use minPageSize if too small
@@ -976,6 +1192,12 @@ PtexMipmapTextureLoader::generateBuffers()
             *p++ = (*it)->adjSizeDiffs;
             *p++ = (uint16_t)(((*it)->ulog2 << 8) | (*it)->vlog2);
         }
+    }
+
+    // apply guttering
+    for (int i = 0; i < numPages; ++i) {
+        _pages[i]->Guttering(this, _ptex, _texelBuffer + pageStride * i,
+                             _bpp, _pageWidth, _maxLevels);
     }
 
 #if 0
